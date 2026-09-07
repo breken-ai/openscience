@@ -10,6 +10,9 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Start desktop onboarding with Synthetic Sciences sign-in and workspace selection,
+  then continue to research project setup. A small Skip action allows local setup
+  without an account; existing completed setups remain unchanged.
 - Start packaged macOS workers without loading application configuration or
   migrating storage, and verify their gated startup and piped input in release smokes.
 - Preserve optional/defaulted tool inputs in provider schemas and clarify inline
