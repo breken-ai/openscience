@@ -10,6 +10,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Wait for scientific canary artifact delivery before validating a completed
+  remote computation, while preserving bounded waits and resource cleanup.
 - Start desktop onboarding with Synthetic Sciences sign-in and workspace selection,
   then continue to research project setup. A small Skip action allows local setup
   without an account; existing completed setups remain unchanged.
