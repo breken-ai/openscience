@@ -21,6 +21,8 @@ import { TaskAttempt, TaskCapacity } from "./task-attempt"
 import { Storage } from "@/storage/storage"
 import { ToolSelection } from "@/session/tool-selection"
 import { availableParallelism } from "node:os"
+import { SubtaskAttachments } from "@/session/subtask-attachments"
+import { SessionWorkspace } from "@/session/workspace"
 
 export const DELEGATION_PROFILES = ["explore", "execute"] as const
 export const DELEGATION_SPECIALISTS = ["biology", "physics", "ml"] as const
@@ -176,6 +178,21 @@ export async function materializeTaskToolOutputs(input: {
   return { prompt, files: [...destinations.values()] }
 }
 
+function taskToolStatus(part: MessageV2.ToolPart) {
+  if (part.tool === "research_search" && part.state.status === "completed") {
+    const metadata = part.state.metadata
+    // An unavailable search is a closed failed attempt. Its provider-level
+    // partial receipt does not mean an operation is still running at handoff.
+    if (
+      metadata?.outcome === "partial" &&
+      (metadata.stopReason === "search_unavailable" || metadata.stopReason === "search_output_unavailable")
+    ) {
+      return "error" as const
+    }
+  }
+  return observableToolStatus(part)
+}
+
 export function summarizeTurn(messages: MessageV2.WithParts[], previous: Set<string>) {
   const current = messages.filter((message) => !previous.has(message.info.id))
   const summary = current
@@ -185,7 +202,7 @@ export function summarizeTurn(messages: MessageV2.WithParts[], previous: Set<str
       id: part.id,
       tool: part.tool,
       state: {
-        status: observableToolStatus(part),
+        status: taskToolStatus(part),
         title: part.state.status === "completed" ? part.state.title : undefined,
       },
     }))
@@ -304,6 +321,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       // session or a `ses_new` placeholder. Those values unambiguously mean a
       // new child; only a different, real direct-child id is a continuation.
       const attemptInput = normalizeTaskAttemptInput(params, ctx.sessionID)
+      const attachments = MessageV2.SubtaskAttachment.array().parse(ctx.extra?.attachments ?? [])
       const continuationID = attemptInput.session_id
       const continuation = continuationID
         ? assertTaskContinuation({
@@ -353,8 +371,8 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       }
       const reserved = await TaskAttempt.reserve({
         ...identity,
-        fingerprint: TaskAttempt.fingerprint(attemptInput),
-        legacyFingerprint: TaskAttempt.legacyFingerprint(attemptInput),
+        fingerprint: TaskAttempt.fingerprint(attachments.length ? { ...attemptInput, attachments } : attemptInput),
+        ...(!attachments.length && { legacyFingerprint: TaskAttempt.legacyFingerprint(attemptInput) }),
         childSessionID: continuationID,
       })
       const started = reserved.createdAt
@@ -388,10 +406,14 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                   : ` (@${params.subagent_type} subagent)`),
               permission: childPermissionRules(config.experimental?.primary_tools),
             })
-        await SessionFilesystem.grantTaskHandoff({
-          parentSessionID: ctx.sessionID,
-          childSessionID: session.id,
-        })
+        // Project-mode parents have no private scratch to hand off. Their
+        // children keep isolated outputs and the existing project read policy.
+        if ((await SessionWorkspace.get(ctx.sessionID)).mode === "isolated") {
+          await SessionFilesystem.grantTaskHandoff({
+            parentSessionID: ctx.sessionID,
+            childSessionID: session.id,
+          })
+        }
 
         const model = settings.workerModel ??
           agent.model ?? { modelID: assistant.modelID, providerID: assistant.providerID }
@@ -434,7 +456,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           .findLast((message) => {
             if (message.info.error) return true
             if (!message.info.finish) return false
-            const hasTool = message.parts.some((part) => part.type === "tool")
+            const hasTool = MessageV2.hasLocalToolResult(message.parts)
             return !MessageV2.isContinuingTurn(message.info.finish, hasTool)
           })
         const settled = await TaskAttempt.settle(identity, terminal?.info.time.completed)
@@ -484,7 +506,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                     id: part.id,
                     tool: part.tool,
                     state: {
-                      status: part.state.status,
+                      status: taskToolStatus(part),
                       title: part.state.status === "completed" ? part.state.title : undefined,
                     },
                   }
@@ -551,7 +573,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                       task: false,
                       ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((tool) => [tool, false])),
                     },
-                    parts: await SessionPrompt.resolvePromptParts(transfer.prompt),
+                    parts: [
+                      ...(await SessionPrompt.resolvePromptParts(transfer.prompt)),
+                      ...(await SubtaskAttachments.materialize(attachments, session.id, ctx.abort)),
+                    ],
                   })
                 }
                 return run().then(
@@ -604,7 +629,11 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                   ? ["[Child stopped on a provider error; its usable partial result follows.]"]
                   : taskOutcome.stopReason === "empty_handoff"
                     ? ["[Child ended without a textual handoff; treat this result as incomplete.]"]
-                    : []),
+                    : failedToolCalls > 0
+                      ? [
+                          `[Child returned a completed handoff with ${failedToolCalls} failed tool ${failedToolCalls === 1 ? "attempt" : "attempts"}. Review its limitations; the failed attempts remain recorded in the child session.]`,
+                        ]
+                      : []),
           handoff.text,
         ]
           .filter(Boolean)

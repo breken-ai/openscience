@@ -408,36 +408,6 @@ export type TextPart = {
   }
 }
 
-export type SubtaskPart = {
-  id: string
-  sessionID: string
-  messageID: string
-  type: "subtask"
-  prompt: string
-  description: string
-  agent: string
-  model?: {
-    providerID: string
-    modelID: string
-  }
-  command?: string
-}
-
-export type ReasoningPart = {
-  id: string
-  sessionID: string
-  messageID: string
-  type: "reasoning"
-  text: string
-  metadata?: {
-    [key: string]: unknown
-  }
-  time: {
-    start: number
-    end?: number
-  }
-}
-
 export type FilePartSourceText = {
   value: string
   start: number
@@ -478,6 +448,45 @@ export type ResourceSource = {
 }
 
 export type FilePartSource = FileSource | SymbolSource | ResourceSource
+
+export type SubtaskAttachment = {
+  type: "file"
+  mime: string
+  filename?: string
+  url: string
+  source?: FilePartSource
+}
+
+export type SubtaskPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "subtask"
+  prompt: string
+  description: string
+  agent: string
+  model?: {
+    providerID: string
+    modelID: string
+  }
+  command?: string
+  attachments?: Array<SubtaskAttachment>
+}
+
+export type ReasoningPart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "reasoning"
+  text: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  time: {
+    start: number
+    end?: number
+  }
+}
 
 export type FilePart = {
   id: string
@@ -707,6 +716,14 @@ export type EventPermissionAsked = {
   properties: PermissionRequest
 }
 
+export type EventPermissionCancelled = {
+  type: "permission.cancelled"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
 export type EventPermissionReplied = {
   type: "permission.replied"
   properties: {
@@ -878,6 +895,14 @@ export type EventQuestionReplied = {
   }
 }
 
+export type EventQuestionCancelled = {
+  type: "question.cancelled"
+  properties: {
+    sessionID: string
+    requestID: string
+  }
+}
+
 export type EventQuestionRejected = {
   type: "question.rejected"
   properties: {
@@ -960,6 +985,10 @@ export type Session = {
   slug: string
   projectID: string
   directory: string
+  /**
+   * Default tool directory: owned scratch or the existing project directory.
+   */
+  workspace?: "isolated" | "project"
   parentID?: string
   summary?: {
     additions: number
@@ -1163,6 +1192,7 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartRemoved
   | EventPermissionAsked
+  | EventPermissionCancelled
   | EventPermissionReplied
   | EventSkillUpdated
   | EventSessionContext
@@ -1172,6 +1202,7 @@ export type Event =
   | EventSessionIdle
   | EventQuestionAsked
   | EventQuestionReplied
+  | EventQuestionCancelled
   | EventQuestionRejected
   | EventSessionCompacted
   | EventTodoUpdated
@@ -2387,11 +2418,76 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
+  attachments?: Array<SubtaskAttachment>
 }
 
 export type RuntimePromptAccepted = {
   runID: string
   acceptedAt: number
+}
+
+export type RuntimeRun = {
+  runID: string
+  sessionID: string
+  requestID?: string
+  messageID: string
+  state: "accepted" | "running" | "completed" | "failed" | "cancelled" | "interrupted"
+  acceptedAt: number
+  updatedAt: number
+  completedAt?: number
+  resultMessageID?: string
+  error?: {
+    code: string
+    message: string
+  }
+}
+
+export type RuntimeDecisionResult = {
+  sessionID: string
+  requestID: string
+  status: "resolved" | "indeterminate"
+  decidedAt: number
+}
+
+export type RuntimeDecisionInput =
+  | {
+      sessionID: string
+      kind: "permission"
+      requestID: string
+      reply: "once" | "session" | "project" | "always" | "reject"
+      message?: string
+    }
+  | {
+      sessionID: string
+      kind: "question"
+      requestID: string
+      answers: Array<QuestionAnswer>
+    }
+  | {
+      sessionID: string
+      kind: "question_reject"
+      requestID: string
+    }
+
+export type RuntimeCapabilities = {
+  protocolVersion: "1.0"
+  serverVersion: string
+  idempotentPrompts: true
+  richInputs: true
+  runSnapshots: true
+  eventRetention: number
+  crashRecovery: "interrupt"
+  decisionScope: "connected_runtime"
+}
+
+export type RuntimeSnapshot = {
+  sessionID: string
+  runs: Array<RuntimeRun>
+  oldestSequence: number
+  latestSequence: number
+  permissions: Array<PermissionRequest>
+  questions: Array<QuestionRequest>
+  decisionScope: "connected_runtime"
 }
 
 export type RuntimeEvent = {
@@ -10389,6 +10485,7 @@ export type SessionCreateData = {
     parentID?: string
     title?: string
     permission?: PermissionRuleset
+    workspace?: "isolated" | "project"
   }
   path?: never
   query?: {
@@ -11980,7 +12077,26 @@ export type PermissionRespondResponse = PermissionRespondResponses[keyof Permiss
 export type RuntimePromptData = {
   body?: {
     sessionID: string
-    message: string
+    messageID?: string
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    variant?: string
+    tier?: string
+    context?: number
+    delegation?: boolean
+    delegationSettings?: {
+      level?: "off" | "light" | "standard" | "high"
+      workerModel?: {
+        providerID: string
+        modelID: string
+      }
+      autonomy?: "interactive" | "balanced" | "autonomous"
+    }
+    requestID?: string
+    message?: string
+    parts?: Array<TextPartInput | FilePartInput | AgentPartInput | ConversationPartInput | SubtaskPartInput>
     effort: "normal" | "ultra"
   }
   path?: never
@@ -12009,6 +12125,138 @@ export type RuntimePromptResponses = {
 }
 
 export type RuntimePromptResponse = RuntimePromptResponses[keyof RuntimePromptResponses]
+
+export type RuntimeCancelData = {
+  body?: {
+    sessionID: string
+    runID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/runtime/cancel"
+}
+
+export type RuntimeCancelErrors = {
+  /**
+   * Session or run not found
+   */
+  404: unknown
+}
+
+export type RuntimeCancelResponses = {
+  /**
+   * Current run state
+   */
+  200: RuntimeRun
+}
+
+export type RuntimeCancelResponse = RuntimeCancelResponses[keyof RuntimeCancelResponses]
+
+export type RuntimeDecideData = {
+  body?: RuntimeDecisionInput
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/runtime/decision"
+}
+
+export type RuntimeDecideErrors = {
+  /**
+   * Invalid answer
+   */
+  400: unknown
+  /**
+   * Session not found
+   */
+  404: unknown
+  /**
+   * Conflicting or expired decision
+   */
+  409: unknown
+}
+
+export type RuntimeDecideResponses = {
+  /**
+   * Decision receipt
+   */
+  200: RuntimeDecisionResult
+}
+
+export type RuntimeDecideResponse = RuntimeDecideResponses[keyof RuntimeDecideResponses]
+
+export type RuntimeCapabilitiesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/runtime/capabilities"
+}
+
+export type RuntimeCapabilitiesResponses = {
+  /**
+   * Runtime capabilities
+   */
+  200: RuntimeCapabilities
+}
+
+export type RuntimeCapabilitiesResponse = RuntimeCapabilitiesResponses[keyof RuntimeCapabilitiesResponses]
+
+export type RuntimeGetRunData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    sessionID: string
+    runID: string
+  }
+  url: "/runtime/run"
+}
+
+export type RuntimeGetRunErrors = {
+  /**
+   * Session or run not found
+   */
+  404: unknown
+}
+
+export type RuntimeGetRunResponses = {
+  /**
+   * Research run
+   */
+  200: RuntimeRun
+}
+
+export type RuntimeGetRunResponse = RuntimeGetRunResponses[keyof RuntimeGetRunResponses]
+
+export type RuntimeSnapshotData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    sessionID: string
+  }
+  url: "/runtime/snapshot"
+}
+
+export type RuntimeSnapshotErrors = {
+  /**
+   * Session not found
+   */
+  404: unknown
+}
+
+export type RuntimeSnapshotResponses = {
+  /**
+   * Runtime snapshot
+   */
+  200: RuntimeSnapshot
+}
+
+export type RuntimeSnapshotResponse = RuntimeSnapshotResponses[keyof RuntimeSnapshotResponses]
 
 export type RuntimeReplayData = {
   body?: never

@@ -10,6 +10,7 @@ import PROMPT_RESPONSE from "./prompt/response.txt"
 import type { Provider } from "@/provider/provider"
 import { Config } from "../config/config"
 import { Skill } from "../skill"
+import { searchSkills } from "../skill/search"
 import { PermissionNext } from "../permission/next"
 import { ComputePrompt } from "../compute/prompt"
 import { ProjectAccess } from "../project/access"
@@ -78,44 +79,13 @@ export namespace SystemPrompt {
       .map(([category, count]) => `${category} (${count})`)
       .join(", ")
     const total = skills.length === 1 ? "1 skill is" : `${skills.length} skills are`
-    const stop = new Set([
-      "and",
-      "answer",
-      "available",
-      "concise",
-      "final",
-      "for",
-      "from",
-      "most",
-      "outline",
-      "relevant",
-      "skill",
-      "sound",
-      "the",
-      "this",
-      "use",
-      "with",
-      "workflow",
-    ])
-    const words = (value: string) =>
-      new Set((value.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((word) => word.length > 2 && !stop.has(word)))
-    const query = words(message ?? "")
-    const matches = skills
-      .map((skill) => {
-        const keys = words(`${skill.name} ${skill.category ?? "other"}`)
-        const body = words(skill.description)
-        const score = [...query].reduce((sum, word) => sum + (keys.has(word) ? 4 : body.has(word) ? 1 : 0), 0)
-        return { skill, score }
-      })
-      .filter((item) => item.score > 1)
-      .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
-      .slice(0, 8)
+    const matches = searchSkills(message ?? "", skills)
     const likely = matches.length
       ? [
           "Likely matches for this request:",
           ...matches.map(
-            (item) =>
-              `- ${item.skill.name}: ${item.skill.description.slice(0, 120)}${item.skill.description.length > 120 ? "..." : ""}`,
+            (skill) =>
+              `- ${skill.name}: ${skill.description.slice(0, 120)}${skill.description.length > 120 ? "..." : ""}`,
           ),
         ]
       : []
@@ -178,7 +148,7 @@ export namespace SystemPrompt {
         ...(invoked.length ? [] : likely),
         invoked.length
           ? "Use only the explicitly invoked skills for this request unless one of their loaded instructions names a required dependency."
-          : "Load a likely match directly, or browse a relevant category when the shortlist is insufficient. Do not guess other names from static routing tables.",
+          : 'Load a likely match by its listed exact name. If no exact name is known or the shortlist is insufficient, use skill({query:"<focused task>"}) and load a returned exact name. Browse a category only when category browsing is useful. Do not invent names from task descriptions or static routing tables.',
         "</available-skills>",
         ...invoke,
       ].join("\n"),
@@ -201,14 +171,11 @@ Keep only one item in_progress at a time.
 
   export async function environment(model: { api: { id: string }; providerID: string }, sessionID: string) {
     const project = Instance.project
-    const context = await Promise.all([
-      SessionFilesystem.workspace(sessionID),
-      SessionFilesystem.state(sessionID),
-      ProjectAccess.status(project),
-    ])
-    const workspace = context[0]
-    const filesystem = context[1]
-    const projectAccess = context[2]
+    const context = await Promise.all([SessionFilesystem.snapshot(sessionID), ProjectAccess.status(project)])
+    const filesystem = context[0]
+    const workspace = filesystem.workspace.scratchRoot
+    const isolated = filesystem.workspace.mode === "isolated"
+    const projectAccess = context[1]
     const sources = filesystem.grants.filter(
       (grant) =>
         !grant.time.consumed && !grant.time.revoked && (grant.source === "api" || grant.source === "permission"),
@@ -229,7 +196,9 @@ Keep only one item in_progress at a time.
         `  Project ID: ${project.id}`,
         `  Session ID: ${sessionID}`,
         `  Project files: ${Instance.directory} (durable and shared across this project)`,
-        `  Session scratch: ${workspace} (temporary and isolated to this conversation)`,
+        isolated
+          ? `  Session scratch: ${workspace} (temporary and isolated to this conversation)`
+          : `  Tool working directory: ${workspace} (project directory; durable and shared across this project)`,
         `  Results: immutable project-wide deliverables saved with the artifact tool`,
         `  Access mode: ${access}`,
         `  Connected project folders:`,
@@ -243,8 +212,8 @@ Keep only one item in_progress at a time.
         `  Platform: ${process.platform}`,
         `  Today's date: ${new Date().toDateString()}`,
         `</env>`,
-        `An OpenScience project is a durable research context that may aggregate multiple connected folders and files. Session scratch belongs only to this conversation. Results are immutable deliverables shared project-wide; a normal workspace file is not a Result until artifact save_file returns its Result ID and version.`,
-        `Use Session scratch by default for one-off downloads, analyses, scripts, tables, and plots. Work in Project files only when the user points to existing durable material or asks to keep reusable outputs. Do not create a new project subfolder for an ordinary answer. Promote a file to Results only when the user requests a durable deliverable or a Result-only contract requires it.`,
+        `An OpenScience project is a durable research context that may aggregate multiple connected folders and files. ${isolated ? "Session scratch belongs only to this conversation." : "This session uses the project directory as its default tool working directory; its files are shared and remain when the session is deleted."} Results are immutable deliverables shared project-wide; a normal workspace file is not a Result until artifact save_file returns its Result ID and version.`,
+        `${isolated ? "Use Session scratch by default for one-off downloads, analyses, scripts, tables, and plots. Work in Project files only when the user points to existing durable material or asks to keep reusable outputs." : "Use the project directory by default for local work. Preserve existing files and treat changes as durable project changes."} Do not create a new project subfolder for an ordinary answer. Promote a file to Results only when the user requests a durable deliverable or a Result-only contract requires it.`,
         `The physical paths above are routing information. Use the human project name in conversation, not UUID directory components. Do not expose scratch, managed-project, or connected-folder paths in a generic greeting. Mention a path only when the user asks about location or when it is needed to complete their request.`,
         `<files>`,
         `  ${

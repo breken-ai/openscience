@@ -151,10 +151,18 @@ describe("reasoning rows", () => {
     expect(row.querySelector('[data-slot="reasoning-part-header"]')).toBeNull()
     await ready(() => row.querySelector('[data-slot="reasoning-part-body"] p') !== null)
     const body = row.querySelector('[data-slot="reasoning-part-body"]')!
-    setPart("text", part.text + "\n\n**Researching cost distribution**\n\nThe entire next passage stays visible.")
+    setPart(
+      "text",
+      part.text +
+        "\n\n**Locating datasets**\n\nThe entire next passage stays visible.\n\n**Gathering dataset for analysis**\n\nThe source is available.\n\n**Clarifying project path**\n\nThe outputs stay in this project.",
+    )
     await ready(() => body.textContent?.includes("The entire next passage stays visible.") === true)
     expect(row.querySelector('[data-slot="reasoning-part-body"]')).toBe(body)
-    expect(body.textContent).not.toContain("Researching cost distribution")
+    expect(body.textContent).not.toContain("Locating datasets")
+    expect(body.textContent).not.toContain("Gathering dataset for analysis")
+    expect(body.textContent).not.toContain("Clarifying project path")
+    expect(body.textContent).toContain("The source is available.")
+    expect(body.textContent).toContain("The outputs stay in this project.")
     expect(row.querySelector('[data-slot="reasoning-part-body"]')?.textContent).toContain("Comparing the two assay")
 
     // Completion does not replace or summarize the streamed prose.
@@ -175,6 +183,9 @@ describe("reasoning rows", () => {
       "The entire next passage stays visible.",
     )
     expect(again.querySelector('[data-slot="reasoning-part-toggle"]')).toBeNull()
+    expect(again.querySelector('[data-slot="reasoning-part-body"]')?.textContent).not.toContain("Locating datasets")
+    expect(again.querySelector('[data-slot="reasoning-part-body"]')?.textContent).not.toContain("Gathering dataset")
+    expect(again.querySelector('[data-slot="reasoning-part-body"]')?.textContent).not.toContain("Clarifying project")
   })
 
   test("an aborted turn preserves reasoning without a misleading thinking clock", async () => {
@@ -324,6 +335,214 @@ describe("reasoning rows", () => {
     expect(host.querySelector('[data-origin="provider-reasoning-unavailable"]')).toBeNull()
     expect(host.textContent).not.toContain("did not provide readable reasoning")
     expect(host.textContent).not.toContain("[REDACTED]")
+  })
+})
+
+describe("skill load receipts", () => {
+  const loaded = (): ToolPart => ({
+    ...read("prt_skill", "", 1_000),
+    tool: "skill",
+    state: {
+      status: "completed",
+      input: { name: "matplotlib", query: "scientific figures" },
+      title: "Loaded skill: matplotlib",
+      output: "## Skill: matplotlib\n\nUse labelled axes and retain the figure source.",
+      metadata: {
+        name: "matplotlib",
+        dir: "/skills/matplotlib",
+        origin: "bundled",
+        contentHash: "a".repeat(64),
+        matches: [],
+        truncated: false,
+      },
+      time: { start: 1_000, end: 1_001 },
+    },
+  })
+
+  test("keeps an inspectable load visible in its completed turn, without claiming another load on the next turn", async () => {
+    const first = assistant(2_000)
+    const next: UserMessage = { ...user, id: "msg_0003" }
+    const second: AssistantMessage = { ...assistant(4_000), id: "msg_0004", parentID: next.id }
+    const skill = loaded()
+    const store: Store = {
+      ...empty(),
+      message: { [sessionID]: [user, first, next, second] },
+      part: {
+        [user.id]: [],
+        [first.id]: [skill, read("prt_read", "/research/data.csv", 1_100)],
+        [next.id]: [],
+        [second.id]: [
+          { id: "prt_second", sessionID, messageID: second.id, type: "text", text: "Here is the next figure." },
+        ],
+      },
+    }
+    const view = () => [
+      turn.SessionTurn({ sessionID, messageID: user.id }),
+      turn.SessionTurn({ sessionID, messageID: next.id }),
+    ]
+    const host = mount(view, store)
+    const earlier = host.querySelector(`[data-message="${user.id}"]`)!
+    const later = host.querySelector(`[data-message="${next.id}"]`)!
+    expect(earlier.textContent).toContain("Loaded skill: matplotlib")
+    expect(earlier.querySelectorAll('[data-component="tool-part-wrapper"]')).toHaveLength(1)
+    expect(later.querySelector('[data-tool-family="skills"]')).toBeNull()
+    const receipt = earlier.querySelector('[data-tool-family="skills"]')!
+    expect(receipt.querySelector('[data-component="tool-output"]')).toBeNull()
+    const button = receipt.querySelector<HTMLButtonElement>("button")!
+    expect(button.getAttribute("aria-expanded")).toBe("false")
+    button.click()
+    await ready(() => receipt.textContent?.includes("Use labelled axes and retain the figure source.") === true)
+    expect(receipt.querySelector('[data-slot="skill-load-receipt"] pre')?.textContent).toContain("a".repeat(64))
+    expect(receipt.querySelector('[data-slot="skill-load-receipt"] pre')?.textContent).toContain("/skills/matplotlib")
+    expect(receipt.querySelector('[data-slot="skill-load-receipt"] pre')?.textContent).toContain('"truncated": false')
+    const activity = earlier.querySelector<HTMLButtonElement>('[data-slot="session-turn-collapsible-trigger-content"]')!
+    activity.click()
+    await ready(() => earlier.querySelectorAll('[data-component="tool-part-wrapper"]').length === 2)
+    expect(earlier.querySelector('[data-tool-family="skills"]')).toBe(receipt)
+    activity.click()
+    await ready(() => earlier.querySelectorAll('[data-component="tool-part-wrapper"]').length === 1)
+    expect(earlier.querySelector('[data-tool-family="skills"]')).toBe(receipt)
+    expect(button.getAttribute("aria-expanded")).toBe("true")
+    expect(store.part[first.id][0]).toEqual(skill)
+
+    cleanups.splice(0).forEach((cleanup) => cleanup())
+    document.body.replaceChildren()
+    const reopened = mount(view, store)
+    expect(reopened.querySelector(`[data-message="${user.id}"]`)?.textContent).toContain("Loaded skill: matplotlib")
+    expect(reopened.querySelector(`[data-message="${next.id}"] [data-tool-family="skills"]`)).toBeNull()
+  })
+
+  test("does not turn discovery or a failed load into a loaded receipt", async () => {
+    const message = assistant(2_000)
+    const discovery: ToolPart = {
+      ...loaded(),
+      id: "prt_search",
+      state: {
+        status: "completed",
+        input: { query: "matplotlib" },
+        title: "Skill matches: matplotlib",
+        output: "No skill instructions have been loaded.",
+        metadata: { name: "matplotlib", dir: "", matches: ["matplotlib"] },
+        time: { start: 1_000, end: 1_001 },
+      },
+    }
+    const failed: ToolPart = {
+      ...loaded(),
+      id: "prt_failed",
+      state: {
+        status: "error",
+        input: { name: "matplotlib" },
+        error: "Permission denied for matplotlib.",
+        time: { start: 1_002, end: 1_003 },
+      },
+    }
+    const store: Store = {
+      ...empty(),
+      message: { [sessionID]: [user, message] },
+      part: { [user.id]: [], [message.id]: [discovery, failed] },
+    }
+    const host = mount(() => turn.SessionTurn({ sessionID, messageID: user.id }), store)
+    expect(host.querySelectorAll('[data-tool-family="skills"]')).toHaveLength(1)
+    expect(host.textContent).toContain("Skill load failed")
+    expect(host.textContent).not.toContain("Loaded skill:")
+    expect(host.textContent).not.toContain("Using matplotlib")
+    host.querySelector<HTMLButtonElement>('[data-slot="session-turn-collapsible-trigger-content"]')!.click()
+    await ready(() => host.textContent?.includes("Found 1 relevant skill") === true)
+    expect(host.querySelectorAll('[data-slot="skill-load-receipt"]')).toHaveLength(0)
+  })
+})
+
+describe("research search receipts", () => {
+  const search = (id: string, output: unknown, metadata: Record<string, unknown> = {}): ToolPart => ({
+    ...read(id, "", 1_000),
+    tool: "research_search",
+    state: {
+      status: "completed",
+      title: "Research search",
+      input: { query: "pass@k policy optimization" },
+      output: JSON.stringify(output),
+      metadata,
+      time: { start: 1_000, end: 1_001 },
+    },
+  })
+
+  test("shows source links, snippets and filter warnings without presenting a raw JSON wall", async () => {
+    const part = search("prt_search", {
+      status: "completed",
+      operation_id: "recorded-operation-id",
+      results: [
+        {
+          title: "Policy optimization paper",
+          url: "https://arxiv.org/abs/2505.15201",
+          snippet: "A verifiable source summary.",
+        },
+        { title: "Unsafe link remains text", url: "javascript:alert(1)" },
+        { url: "ftp://example.org/paper.txt", snippet: "Long captured excerpt. ".repeat(50) },
+      ],
+      warnings: ["search_publication_date_unknown_excluded"],
+    })
+    const host = mount(() => parts.Part({ part, message: assistant(2_000) }), empty())
+    expect(host.textContent).toContain("Found 3 sources")
+    host.querySelector<HTMLButtonElement>("button")!.click()
+    await ready(() => host.querySelector('[data-slot="search-result"] a') !== null)
+    expect(host.querySelector('[data-slot="search-result"] a')?.getAttribute("href")).toBe(
+      "https://arxiv.org/abs/2505.15201",
+    )
+    expect(host.querySelectorAll('[data-slot="search-result"] a')).toHaveLength(1)
+    await ready(() => host.textContent?.includes("A verifiable source summary.") === true)
+    expect(host.textContent).toContain("ftp://example.org/paper.txt")
+    expect(host.querySelector<HTMLDetailsElement>('[data-slot="search-excerpt"]')?.open).toBe(false)
+    expect(host.textContent).toContain("Results without a known publication date were excluded")
+    const details = host.querySelector<HTMLDetailsElement>('[data-slot="search-response-details"]')!
+    expect(details.open).toBe(false)
+    expect(details.textContent).toContain("recorded-operation-id")
+  })
+
+  test("keeps a closed unavailable search visible as a failure, distinct from an empty successful search", async () => {
+    const message = assistant(2_000)
+    const failed = search(
+      "prt_failed_search",
+      {
+        status: "partial",
+        type: "search_unavailable",
+        message: "Ace search failed with HTTP 500.",
+      },
+      { outcome: "partial", stopReason: "search_unavailable" },
+    )
+    const none = search("prt_empty_search", { status: "completed", results: [] })
+    const original = JSON.stringify(failed)
+    const store: Store = {
+      ...empty(),
+      message: { [sessionID]: [user, message] },
+      part: { [user.id]: [], [message.id]: [failed, none] },
+    }
+    const host = mount(() => turn.SessionTurn({ sessionID, messageID: user.id }), store)
+    expect(host.querySelectorAll('[data-component="tool-part-wrapper"]')).toHaveLength(1)
+    expect(host.textContent).toContain("Research search unavailable")
+    expect(host.querySelector('[data-component="tool-trigger"]')?.getAttribute("data-outcome")).toBe("error")
+    const row = host.querySelector('[data-component="tool-part-wrapper"]')!
+    row.querySelector<HTMLButtonElement>("button")!.click()
+    await ready(() => row.textContent?.includes("Ace search failed with HTTP 500.") === true)
+    host.querySelector<HTMLButtonElement>('[data-slot="session-turn-collapsible-trigger-content"]')!.click()
+    await ready(() => host.textContent?.includes("No results returned") === true)
+    expect(JSON.stringify(failed)).toBe(original)
+  })
+
+  test("labels cancellation without implying a search-provider outage", () => {
+    const part: ToolPart = {
+      ...read("prt_cancelled_search", "", 1_000),
+      tool: "research_search",
+      state: {
+        status: "error",
+        input: { query: "pass@k" },
+        error: "The operation was aborted",
+        time: { start: 1_000, end: 1_001 },
+      },
+    }
+    const host = mount(() => parts.Part({ part, message: assistant(2_000) }), empty())
+    expect(host.textContent).toContain("Research search cancelled")
+    expect(host.textContent).not.toContain("Research search unavailable")
+    expect(host.querySelector('[data-component="tool-trigger"]')?.getAttribute("data-outcome")).toBe("cancelled")
   })
 })
 
@@ -747,6 +966,18 @@ describe("execution inspection", () => {
     card.querySelector<HTMLElement>("summary")!.click()
     await settle()
     expect(card.querySelector('[data-slot="delegation-current"]')?.textContent).toContain("Read new paper")
+    setPart("state", {
+      status: "completed",
+      input: part.state.input,
+      title: "Compare assays",
+      output: "The comparison is ready; one source could not be retrieved.",
+      metadata: { outcome: "completed", failedToolCalls: 1 },
+      time: { start: 1_000, end: 2_000 },
+    })
+    await settle()
+    expect(card.getAttribute("data-outcome")).toBe("completed")
+    expect(card.querySelector('[data-slot="delegation-status"]')?.textContent).toBe("Completed with tool errors")
+    expect(card.querySelector('[data-slot="delegation-metrics"]')?.textContent).toContain("1 failed")
   })
 
   test("a new model request replaces the preceding command status with its own wait", async () => {

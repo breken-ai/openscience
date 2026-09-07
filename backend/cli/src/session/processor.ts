@@ -236,13 +236,13 @@ export namespace SessionProcessor {
    * textual handoff. Preserve the finish reason while giving every client a
    * retryable error whenever the provider filters the final answer, including
    * turns where one or more tools already ran. */
-  export function emptyContentFilterError(finish: string | undefined, parts: MessageV2.Part[]) {
+  export function contentFilterError(finish: string | undefined, parts: MessageV2.Part[]) {
     if (finish !== "content-filter") return
     const hasText = parts.some((part) => part.type === "text" && !part.ignored && part.text.trim().length > 0)
-    if (hasText) return
     return new MessageV2.APIError({
-      message:
-        "The provider blocked this response with its content filter and returned no content or textual handoff. Retry the request or choose another model.",
+      message: hasText
+        ? "The provider blocked this response with its content filter after returning partial content. The partial response is preserved. Inspect any completed actions before retrying or choosing another model."
+        : "The provider blocked this response with its content filter and returned no content or textual handoff. Retry the request or choose another model.",
       isRetryable: true,
       metadata: {
         action: "retry",
@@ -809,7 +809,9 @@ export namespace SessionProcessor {
                           start: Date.now(),
                         },
                       },
-                      metadata: value.providerMetadata,
+                      metadata: value.providerExecuted
+                        ? { ...value.providerMetadata, providerExecuted: true }
+                        : value.providerMetadata,
                     })
                     // Some providers omit the terminal tool-result event even
                     // though the execute promise has already settled. The
@@ -840,18 +842,21 @@ export namespace SessionProcessor {
                         break
                       }
                       const agent = await Agent.get(input.assistantMessage.agent)
-                      await PermissionNext.ask({
-                        permission: "doom_loop",
-                        patterns: [value.toolName],
-                        sessionID: input.assistantMessage.sessionID,
-                        mode: (await ProjectAccess.status(Instance.project)).mode,
-                        metadata: {
-                          tool: value.toolName,
-                          input: value.input,
+                      await PermissionNext.ask(
+                        {
+                          permission: "doom_loop",
+                          patterns: [value.toolName],
+                          sessionID: input.assistantMessage.sessionID,
+                          mode: (await ProjectAccess.status(Instance.project)).mode,
+                          metadata: {
+                            tool: value.toolName,
+                            input: value.input,
+                          },
+                          always: [value.toolName],
+                          ruleset: agent.permission,
                         },
-                        always: [value.toolName],
-                        ruleset: agent.permission,
-                      })
+                        input.abort,
+                      )
                     }
                   }
                   break
@@ -1011,7 +1016,7 @@ export namespace SessionProcessor {
             }
             transport.signal.throwIfAborted()
 
-            const filtered = emptyContentFilterError(
+            const filtered = contentFilterError(
               input.assistantMessage.finish,
               await MessageV2.parts(input.assistantMessage.id),
             )

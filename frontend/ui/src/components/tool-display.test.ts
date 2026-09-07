@@ -6,6 +6,7 @@ import {
   generatedArtifacts,
   humanizeToolName,
   lineCount,
+  loadedSkillName,
   reasoningDisplayText,
   runningLabel,
   sentenceCaseLabel,
@@ -100,9 +101,9 @@ describe("skillName", () => {
     expect(skillName({})).toBeUndefined()
     expect(skillActivity({ status: "running" })).toEqual({ title: "Finding relevant skills" })
   })
-  test("distinguishes using a skill from merely finding candidates", () => {
+  test("distinguishes a requested load, recorded load and discovered candidates", () => {
     expect(skillActivity({ input: { name: "scientific-schematics" }, status: "running" })).toEqual({
-      title: "Using scientific-schematics",
+      title: "Loading scientific-schematics",
     })
     expect(
       skillActivity({
@@ -112,9 +113,59 @@ describe("skillName", () => {
         status: "completed",
       }),
     ).toEqual({ title: "Found 2 relevant skills" })
+    expect(
+      skillActivity({
+        input: { name: "exploratory-data-analysis", query: "Titanic plots", category: "visualization", offset: 0 },
+        metadata: { name: "exploratory-data-analysis", matches: [] },
+        title: "Loaded skill: exploratory-data-analysis",
+        status: "completed",
+      }),
+    ).toEqual({ title: "Loaded skill: exploratory-data-analysis" })
+    expect(
+      skillActivity({
+        input: { name: "data-visualization", query: "Titanic plots" },
+        metadata: { name: "Titanic plots", dir: "", matches: ["exploratory-data-analysis", "matplotlib"] },
+        title: "Skill matches: Titanic plots",
+        status: "completed",
+      }),
+    ).toEqual({ title: "Found 2 relevant skills" })
     expect(skillActivity({ metadata: { names: ["scientific-schematics", "ml-paper-writing"] } })).toEqual({
-      title: "Using 2 skills",
+      title: "2 skills",
       subtitle: "scientific-schematics · ml-paper-writing",
+    })
+  })
+
+  test("requires a successful load result and uses its identity, never the requested name", () => {
+    expect(loadedSkillName({ title: "Loaded skill: matplotlib", status: "completed" })).toBe("matplotlib")
+    expect(
+      loadedSkillName({ title: "Loaded skill: matplotlib", status: "completed", metadata: { name: "matplotlib" } }),
+    ).toBe("matplotlib")
+    for (const title of ["Skill matches: matplotlib", "Skills in category: matplotlib", "Loaded skill: ", undefined]) {
+      expect(loadedSkillName({ title, status: "completed", metadata: { name: "matplotlib" } })).toBeUndefined()
+    }
+    for (const status of ["pending", "running", "error", undefined]) {
+      expect(loadedSkillName({ title: "Loaded skill: matplotlib", status })).toBeUndefined()
+    }
+    expect(
+      loadedSkillName({ title: "Loaded skill: matplotlib", status: "completed", metadata: { ok: false } }),
+    ).toBeUndefined()
+    expect(
+      skillActivity({ title: "Loaded skill: matplotlib", status: "completed", input: { name: "unavailable" } }),
+    ).toEqual({ title: "Loaded skill: matplotlib" })
+    expect(skillActivity({ status: "completed", input: { name: "matplotlib" } })).toEqual({
+      title: "Skill result",
+      subtitle: "matplotlib",
+    })
+  })
+
+  test("labels failed loads and empty discovery results without implying use", () => {
+    expect(skillActivity({ input: { name: "matplotlib" }, status: "error" })).toEqual({
+      title: "Skill load failed",
+      subtitle: "matplotlib",
+    })
+    expect(skillActivity({ input: { query: "plots" }, status: "error" })).toEqual({ title: "Skill lookup failed" })
+    expect(skillActivity({ input: { category: "plots" }, metadata: { matches: [] }, status: "completed" })).toEqual({
+      title: "No matching skills found",
     })
   })
 })
@@ -281,6 +332,14 @@ describe("provider reasoning presentation", () => {
     )
   })
 
+  test("removes the reported dataset-location phase while preserving its complete reasoning", () => {
+    const prose =
+      "I need to find a suitable dataset for the user's request. It looks like there aren't any files available, but I could use an online dataset from Seaborn. Since the user wants to generate plots, I’ll need to retrieve and analyze that data, then save the outputs, maybe from scratch. I might need to enhance my skills for data visualization too. Also, I’ll download the canonical Titanic CSV from a known URL. Let's fetch that!"
+    expect(reasoningDisplayText(`**Locating datasets**\n\n${prose}[REDACTED]`)).toBe(prose)
+    const statement = "**Locating the sample revealed a mislabeled tube.**\nThe label needs verification."
+    expect(reasoningDisplayText(statement)).toBe(statement)
+  })
+
   test("suppresses exact status-only labels without guessing which standalone passages are labels", () => {
     expect(reasoningDisplayText("Planning")).toBe("")
     expect(reasoningDisplayText("  Considering next steps[REDACTED]\n")).toBe("")
@@ -331,9 +390,19 @@ describe("provider reasoning presentation", () => {
     )
   })
 
-  test("preserves arbitrary headings without classifying their content", () => {
-    const heading = "**Feature counts requirement**\nThe explanation remains below it."
-    expect(reasoningDisplayText(heading)).toBe(heading)
+  test("removes short structural headings without depending on a vocabulary of phase verbs", () => {
+    for (const heading of [
+      "Locating datasets",
+      "Gathering dataset for analysis",
+      "Clarifying project path",
+      "Dataset and plotting plan",
+      "Data: source & analysis",
+      "Feature counts requirement",
+    ]) {
+      expect(reasoningDisplayText(`**${heading}**\n\nThe complete explanation remains below it.`)).toBe(
+        "The complete explanation remains below it.",
+      )
+    }
   })
 
   test("does not strip an action phrase used as inline emphasis or a complete bold statement", () => {
@@ -354,6 +423,10 @@ describe("provider reasoning presentation", () => {
     }
     const indented = "    **Checking sources**\n    Preserve this example."
     expect(reasoningDisplayText(indented)).toBe(indented)
+    for (const indent of ["    ", "\t"]) {
+      const bridge = `${indent}done.**Gathering sources**\n${indent}Preserve this literal.`
+      expect(reasoningDisplayText(bridge)).toBe(bridge)
+    }
   })
 
   test("preserves inline code and math even across line breaks", () => {
@@ -373,6 +446,9 @@ describe("provider reasoning presentation", () => {
     expect(reasoningDisplayText(code)).toBe(code)
     const escaped = "$\\text{cost \\$}\n**Checking sources**\nPreserve this example.\n$"
     expect(reasoningDisplayText(escaped)).toBe(escaped)
+    expect(reasoningDisplayText("The cost is \\$5.\n\n**Gathering sources:**\n\nThe complete passage.")).toBe(
+      "The cost is \\$5.\n\nThe complete passage.",
+    )
   })
 
   test("preserves raw code elements and comments containing heading-looking examples", () => {

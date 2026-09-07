@@ -2,7 +2,7 @@ import z from "zod"
 import path from "path"
 import crypto from "node:crypto"
 import { Tool } from "./tool"
-import { registry } from "../science/connectors"
+import { connectorRegistry } from "../science/connectors/plugin"
 import type { ConnectorHit } from "../science/connectors"
 import { SessionFilesystem } from "../session/filesystem"
 import { SafeFileIO } from "../file/safe-io"
@@ -51,6 +51,7 @@ export const ScienceListDbsTool = Tool.define("science_list_dbs", {
       .describe("Optional domain filter (e.g. 'chemistry', 'biology', 'literature', 'structure')"),
   }),
   async execute(params, _ctx) {
+    const registry = await connectorRegistry()
     const entries = registry.catalog().filter((e) => !params.domain || e.domain === params.domain)
     if (!entries.length) {
       return {
@@ -98,6 +99,7 @@ export const ScienceSearchTool = Tool.define("science_search", {
     organism: z.string().optional().describe("Optional organism/taxon filter where supported"),
   }),
   async execute(params, ctx) {
+    const registry = await connectorRegistry()
     const connector = registry.get(params.db)
     if (!connector) {
       const available = registry
@@ -174,6 +176,8 @@ export const ScienceFetchTool = Tool.define("science_fetch", {
   description: [
     "Retrieve one record from a scientific database by id.",
     "Pass a `db` id (from `science_list_dbs`) and the record `id` returned by `science_search`.",
+    "For literature databases, a record contains bibliographic metadata and available abstracts, not the full paper.",
+    "A PDF or full-text URL in a record is only a link. Retrieve and inspect that source separately with webfetch before making claims that require the full text.",
     "Small records are returned inline; large ones are written to a file whose path is reported.",
     "Pass `format` to retrieve a file (e.g. 'cif', 'fasta', 'sdf') instead of a record —",
     "`science_list_dbs` reports which formats each database supports.",
@@ -187,6 +191,7 @@ export const ScienceFetchTool = Tool.define("science_fetch", {
       .describe("Optional file format, e.g. 'cif' | 'pdb' | 'fasta' | 'sdf'. Omit for a structured record."),
   }),
   async execute(params, ctx) {
+    const registry = await connectorRegistry()
     const connector = registry.get(params.db)
     if (!connector) {
       const available = registry

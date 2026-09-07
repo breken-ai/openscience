@@ -1,6 +1,9 @@
 import type { Argv } from "yargs"
 import type z from "zod"
 import path from "path"
+import fs from "node:fs/promises"
+import { isUtf8 } from "node:buffer"
+import { pathToFileURL } from "node:url"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
@@ -11,8 +14,10 @@ import { createOpenScienceClient, type OpenScienceClient, type PermissionRequest
 import { NamedError } from "@synsci/util/error"
 import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
-import { Agent } from "../../agent/agent"
 import { RunEvents } from "../run-events"
+import { SafeFileIO } from "../../file/safe-io"
+import { SubtaskAttachments } from "../../session/subtask-attachments"
+import { detectImageMime } from "../../util/image"
 
 const TOOL: Record<string, [string, string]> = {
   todowrite: ["Todo", UI.Style.TEXT_WARNING_BOLD],
@@ -67,20 +72,46 @@ type Payload<T> = T extends unknown ? Omit<T, "timestamp" | "sessionID"> : never
 /** Find or create the session `run` drives; both the local and `--attach` paths share it. */
 export async function session(
   sdk: OpenScienceClient,
-  input: { continue?: boolean; session?: string; title?: string; message: string },
+  input: {
+    continue?: boolean
+    session?: string
+    title?: string
+    message: string
+    workspace?: "isolated" | "project"
+  },
 ) {
-  if (input.continue) {
-    const result = await sdk.session.list()
-    return result.data?.find((s) => !s.parentID)?.id
+  const verify = async (sessionID: string) => {
+    if (!input.workspace) return
+    const result = await sdk.session.filesystem.list({ sessionID }, { throwOnError: true })
+    const workspace = result.data.workspace.mode === "legacy" ? "project" : "isolated"
+    if (input.workspace !== workspace) {
+      throw new Error(`Session ${sessionID} uses workspace ${workspace}; cannot use ${input.workspace}.`)
+    }
   }
-  if (input.session) return input.session
+  const resumed = input.continue
+    ? (await sdk.session.list(undefined, { throwOnError: true })).data?.find((s) => !s.parentID)?.id
+    : input.session
+  if (resumed) {
+    await verify(resumed)
+    return resumed
+  }
+  if (input.continue) return
   const title =
     input.title === undefined
       ? undefined
       : input.title === ""
         ? input.message.slice(0, 50) + (input.message.length > 50 ? "..." : "")
         : input.title
-  const result = await sdk.session.create({ ...(title ? { title } : {}), permission: QUESTION_DENY })
+  const result = await sdk.session.create(
+    { ...(title ? { title } : {}), permission: QUESTION_DENY, workspace: input.workspace },
+    { throwOnError: true },
+  )
+  // An older attached server can accept the request while stripping an
+  // unknown workspace field. Never start tools unless it honored the mode.
+  await verify(result.data.id).catch(async (error) => {
+    await sdk.session.delete({ sessionID: result.data.id }).catch(() => undefined)
+    throw error
+  })
   return result.data?.id
 }
 
@@ -151,7 +182,9 @@ export async function execute(input: RunInput): Promise<number> {
 
   const agent = await (async () => {
     if (!input.agent) return "research"
-    const found = await Agent.get(input.agent)
+    const found = (await sdk.app.agents(undefined, { throwOnError: true })).data.find(
+      (agent) => agent.name === input.agent,
+    )
     if (!found) {
       UI.println(
         UI.Style.TEXT_WARNING_BOLD + "!",
@@ -357,6 +390,8 @@ export async function execute(input: RunInput): Promise<number> {
         model: input.model,
         command: input.command,
         arguments: input.message,
+        parts: input.files,
+        effort: input.effort,
         variant: input.variant,
         delegation,
       })
@@ -425,6 +460,11 @@ export const RunCommand = cmd({
         describe: "session id to continue",
         type: "string",
       })
+      .option("workspace", {
+        type: "string",
+        choices: ["isolated", "project"] as const,
+        describe: "default tool directory for new sessions (default: isolated); resumed sessions keep their mode",
+      })
       .option("model", {
         type: "string",
         alias: ["m"],
@@ -487,6 +527,7 @@ export const RunCommand = cmd({
     }
 
     const files: RunFile[] = []
+    let uploadBytes = 0
     for (const filePath of args.file ?? []) {
       const resolvedPath = path.resolve(process.cwd(), filePath)
       const file = Bun.file(resolvedPath)
@@ -495,11 +536,45 @@ export const RunCommand = cmd({
         UI.error(`File not found: ${filePath}`)
         process.exit(RunEvents.ExitCode.usage)
       }
+      if (!args.attach) {
+        files.push({
+          type: "file",
+          url: pathToFileURL(resolvedPath).href,
+          filename: path.basename(resolvedPath),
+          mime: stat.isDirectory() ? "application/x-directory" : "text/plain",
+        })
+        continue
+      }
+      if (!stat.isFile()) {
+        UI.error("--attach --file accepts regular files only. Upload individual files instead of a directory.")
+        process.exit(RunEvents.ExitCode.usage)
+      }
+      // The explicit CLI argument authorizes reading this client's file. A
+      // remote server cannot resolve the client's path or grant access to it.
+      const snapshot = await SafeFileIO.read(await fs.realpath(resolvedPath), {
+        maxBytes: SubtaskAttachments.LIMIT - uploadBytes,
+      }).catch((error: unknown) => {
+        if (error instanceof SafeFileIO.LimitError) {
+          UI.error("Attached files exceed the 32 MiB byte limit. Split or reduce the uploaded files.")
+          process.exit(RunEvents.ExitCode.usage)
+        }
+        throw error
+      })
+      uploadBytes += snapshot.bytes.byteLength
+      // Text uploads use the API's inline-text representation; binary media
+      // keep their media type, corrected from magic bytes when possible.
+      const mime =
+        detectImageMime(snapshot.bytes) ??
+        (snapshot.bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+          ? "application/pdf"
+          : !snapshot.bytes.includes(0) && isUtf8(snapshot.bytes)
+            ? "text/plain"
+            : file.type.split(";")[0] || "application/octet-stream")
       files.push({
         type: "file",
-        url: `file://${resolvedPath}`,
+        url: `data:${mime};base64,${snapshot.bytes.toString("base64")}`,
         filename: path.basename(resolvedPath),
-        mime: stat.isDirectory() ? "application/x-directory" : "text/plain",
+        mime,
       })
     }
 
@@ -522,6 +597,7 @@ export const RunCommand = cmd({
         continue: args.continue,
         session: args.session,
         title: args.title,
+        workspace: args.workspace,
         message,
       })
       if (!sessionID) {
@@ -545,7 +621,18 @@ export const RunCommand = cmd({
     }
 
     if (args.attach) {
-      process.exit(await run(createOpenScienceClient({ baseUrl: args.attach })))
+      const token = process.env.OPENSCIENCE_AUTH_TOKEN
+      const client = createOpenScienceClient({
+        baseUrl: args.attach,
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+      })
+      const code = await run(client).catch((error: unknown) => {
+        if (error && typeof error === "object" && "error" in error && error.error === "Unauthorized") {
+          throw new Error("The server rejected authentication. Set OPENSCIENCE_AUTH_TOKEN to the server's token.")
+        }
+        throw error
+      })
+      process.exit(code)
     }
 
     const code = await bootstrap(process.cwd(), async () => {

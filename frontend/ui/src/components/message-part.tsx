@@ -34,6 +34,7 @@ import { useCodeComponent } from "../context/code"
 import { useDialog } from "../context/dialog"
 import { useI18n } from "../context/i18n"
 import { BasicTool } from "./basic-tool"
+import { ResearchSearchTool } from "./research-search-tool"
 import { GenericTool } from "./basic-tool"
 import { Button } from "./button"
 import { createTypewriter } from "./typewriter"
@@ -57,6 +58,7 @@ import {
   savedArtifact,
   scienceTaskLabel,
   sentenceCaseLabel,
+  loadedSkillName,
   skillActivity,
   stripBashMetadata,
   toolOutcome,
@@ -1036,6 +1038,12 @@ ToolRegistry.register({
       skillActivity({ metadata: props.metadata, input: props.input, title: props.title, status: props.status })
     return (
       <BasicTool {...props} icon="mcp" trigger={{ title: activity().title, subtitle: activity().subtitle }}>
+        <Show when={loadedSkillName(props)}>
+          <details data-slot="skill-load-receipt">
+            <summary>Load details</summary>
+            <pre>{JSON.stringify({ input: props.input, metadata: props.metadata }, null, 2)}</pre>
+          </details>
+        </Show>
         <Show when={props.output}>
           {(output) => (
             <div data-component="tool-output" data-scrollable>
@@ -1157,6 +1165,8 @@ ToolRegistry.register({
     )
   },
 })
+
+ToolRegistry.register({ name: "research_search", render: ResearchSearchTool })
 
 ToolRegistry.register({
   name: "webfetch",
@@ -1330,6 +1340,7 @@ ToolRegistry.register({
       if (outcome() === "timed_out") return "Time limit reached"
       if (outcome() === "error") return "Needs attention"
       if (outcome() === "cancelled") return i18n.t("ui.tool.status.cancelled")
+      if (Number(props.metadata.failedToolCalls) > 0) return "Completed with tool errors"
       return "Completed"
     }
     const [expanded, setExpanded] = createSignal<boolean>()

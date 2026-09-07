@@ -29,12 +29,11 @@ export function stripRedactedReasoning(text: string): string {
   return visible.trim() ? visible : ""
 }
 
-const reasoningPhase =
-  /^(?:planning|preparing|retrieving|exploring|inspecting|testing|verifying|checking|reviewing|analyzing|evaluating|designing|building|running|confirming|adjusting|patching|restarting|summarizing|finalizing|considering|choosing|simplifying|determining|revising|parsing|researching|optimizing|streamlining|refining|rethinking|comparing)\b[\p{L}\p{N} ,'/()_-]*$/iu
+const reasoningHeading = /^[\p{L}\p{N} ,'/()_&:–—-]+$/u
 const reasoningStatus =
   /^(?:planning|preparing|retrieving|exploring|inspecting|testing|verifying|checking|reviewing|analyzing|evaluating|designing|building|running|confirming|adjusting|patching|restarting|summarizing|finalizing|thinking|considering next steps)$/i
 
-/** Display-only phase-label cleanup; the persisted provider text is never changed. */
+/** Display-only heading cleanup; the persisted provider text is never changed. */
 export function reasoningDisplayText(text: string): string {
   const visible = stripRedactedReasoning(text)
   if (!visible || reasoningStatus.test(visible.trim())) return ""
@@ -44,7 +43,7 @@ export function reasoningDisplayText(text: string): string {
   // unfinished literal arriving over the stream. This deliberately errs on the
   // side of retaining labels rather than deleting potentially meaningful text.
   const literals: { start: number; end: number }[] = []
-  const delimiters = /^ {0,3}(`{3,}|~{3,})[^\r\n]*(?:\r?\n|$)|`+|\${1,2}|\\[[(]|<(pre|code)\b[^>]*>|<!--/gim
+  const delimiters = /^ {0,3}(`{3,}|~{3,})[^\r\n]*(?:\r?\n|$)|`+|(?<!\\)\${1,2}|\\[[(]|<(pre|code)\b[^>]*>|<!--/gim
   for (const match of visible.matchAll(delimiters)) {
     if ((literals.at(-1)?.end ?? -1) > match.index) continue
     const delimiter = match[1] ?? match[0]
@@ -71,8 +70,9 @@ export function reasoningDisplayText(text: string): string {
     if (
       label.length > 100 ||
       label.trim().split(/\s+/).length > 12 ||
-      !reasoningPhase.test(label.trim()) ||
+      !reasoningHeading.test(label.trim()) ||
       offset + match.length >= end ||
+      /^(?: {4}|\t)/.test(visible.slice(visible.lastIndexOf("\n", offset - 1) + 1, offset)) ||
       literals.some((literal) => offset >= literal.start && offset < literal.end)
     ) {
       return match
@@ -429,18 +429,37 @@ export function skillName(source: {
   return undefined
 }
 
+/** Discovery also carries metadata.name; only the completed load result proves
+ * that instructions were delivered. Never infer a load from requested inputs. */
+export function loadedSkillName(source: {
+  metadata?: Record<string, unknown>
+  title?: string
+  status?: string
+}): string | undefined {
+  if (source.status !== "completed" || source.metadata?.ok === false) return
+  if (!source.title?.startsWith("Loaded skill: ")) return
+  const title = source.title.slice("Loaded skill: ".length).trim()
+  if (!title) return
+  const name = source.metadata?.name
+  return typeof name === "string" && name.trim() ? name.trim() : title
+}
+
 export function skillActivity(source: {
   metadata?: Record<string, unknown>
   input?: Record<string, unknown>
   title?: string
   status?: string
 }): { title: string; subtitle?: string } {
-  const used = Array.isArray(source.metadata?.names)
-    ? source.metadata.names.filter((name): name is string => typeof name === "string" && !!name)
-    : []
-  if (used.length > 1) {
-    return { title: `Using ${used.length} skills`, subtitle: used.join(" · ") }
+  if (source.status === "error" || source.metadata?.ok === false) {
+    const name = source.input?.name
+    return typeof name === "string" && name
+      ? { title: "Skill load failed", subtitle: name }
+      : { title: "Skill lookup failed" }
   }
+  // Models may send discovery fields with an exact load. The completed result
+  // identifies what actually happened, rather than the optional input fields.
+  const loaded = loadedSkillName(source)
+  if (loaded) return { title: `Loaded skill: ${loaded}` }
   const search =
     typeof source.input?.query === "string" ||
     typeof source.input?.category === "string" ||
@@ -448,11 +467,17 @@ export function skillActivity(source: {
     source.title?.startsWith("Skills in category:")
   if (search) {
     const matches = Array.isArray(source.metadata?.matches) ? source.metadata.matches.length : 0
-    return source.status === "completed" && matches > 0
+    if (source.status !== "completed") return { title: "Finding relevant skills" }
+    return matches > 0
       ? { title: `Found ${matches} relevant ${matches === 1 ? "skill" : "skills"}` }
-      : { title: "Finding relevant skills" }
+      : { title: "No matching skills found" }
   }
 
+  const names = Array.isArray(source.metadata?.names)
+    ? source.metadata.names.filter((name): name is string => typeof name === "string" && !!name)
+    : []
+  if (names.length > 1) return { title: `${names.length} skills`, subtitle: names.join(" · ") }
   const name = skillName(source)
-  return name ? { title: `Using ${name}` } : { title: "Finding relevant skills" }
+  if (source.status === "completed") return { title: "Skill result", ...(name ? { subtitle: name } : {}) }
+  return name ? { title: `Loading ${name}` } : { title: "Finding relevant skills" }
 }

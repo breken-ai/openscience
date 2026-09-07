@@ -2,6 +2,10 @@
 
 This document explains how OpenScience is put together, so you can find your way around the codebase and know where a change belongs.
 
+The [scientific harness design](docs/notes/scientific-harness-design.md) explains
+what should stay small, how extensions fit, and how to evaluate quality and cost
+across the five target science benchmarks without changing their native contracts.
+
 ## The shape of the system
 
 When you run `openscience`, the CLI starts a local server and opens a workspace in your browser. The workspace, durable state, permissions, and compute control plane run on your machine. Model calls, scientific connectors, and explicitly approved remote-compute jobs may use the provider you configure.
@@ -19,7 +23,23 @@ When you run `openscience`, the CLI starts a local server and opens a workspace 
         +--  Compute jobs       local, SSH, scheduler, and user-owned Modal runs
 ```
 
-The server binds to `127.0.0.1` and enforces a Host and Origin allowlist. There is no remote mode.
+The server binds to `127.0.0.1` and enforces a Host and Origin allowlist. A configured deployment bearer token protects the whole local service; project selectors do not create tenant isolation. Remote applications need a separately authenticated gateway and an appropriate execution boundary.
+
+`openscience serve` owns the same Research loop without opening the workbench. A `--headless` source build omits the embedded UI; the normal combined build remains available. Frontends and integrations submit work through the public runtime contract, while the native CLI/Harbor adapter retains its versioned JSONL process contract over the same session/tool loop.
+
+```text
+Workbench / TypeScript client / Python client
+                            | HTTP commands + SSE observations
+                     Public runtime protocol
+                            | admission / decisions / cancellation
+                     Research session + tool loop
+                            | existing scoped services
+                 Files / Results / compute jobs / plugins / MCP
+```
+
+`src/runtime/runs.ts` records request receipts before model execution and serializes admission across processes. An identical request ID returns the same run; changed content conflicts. Terminal receipts outlive the bounded event journal. Loss of the owning process interrupts unfinished work rather than automatically repeating external effects. `src/runtime/decisions.ts` records responses to live permission/question continuations; it does not recreate an approval continuation after a server crash. Ambiguous decisions are reported as indeterminate.
+
+The workbench negotiates capabilities before using the runtime. A confirmed missing capability endpoint allows an older server's legacy prompt path; an uncertain submission never falls back to another submission route. Domain logic remains below HTTP routes. See the [runtime contract](frontend/docs/src/content/openscience/api.mdx) and [headless hosting](frontend/docs/src/content/openscience/server-hosting.mdx) for lifecycle and compatibility details.
 
 ## Repository layout
 
@@ -31,6 +51,8 @@ frontend/ui          Shared UI components, themes, and icons
 frontend/docs        The documentation site (Vite + React)
 frontend/landing     The marketing site (openscience.sh); has its own lockfile
 tooling/sdk/js       The TypeScript SDK, generated from the server contract
+tooling/sdk/python   The dependency-free Python HTTP/SSE client
+tooling/harbor       The installed-agent adapter for native Harbor tasks
 tooling/plugin       The plugin runtime (@synsci/plugin)
 tooling/launcher     The `npx synsci` installer
 tooling/repo         Repo automation: contributor setup, SDK regeneration, release scripts
@@ -57,11 +79,19 @@ The backend is a Bun and TypeScript application compiled to a single native bina
 
 ### Prompt architecture
 
-Prompts are assembled in two layers: a provider-neutral system prompt (`src/session/system.ts` supplies the same product contract to every model), and an agent-level workflow prompt injected by agent name (`src/session/prompt.ts`). See [CLAUDE.md](CLAUDE.md) for the routing details.
+An explicit agent header replaces the generic fallback. Default Research uses the
+short `researchagent-test.txt` header plus response defaults; session assembly adds
+environment, project instructions and applicable mode/skill context. Provider
+transforms then adapt request options, tools, reasoning and message serialization.
+The generic fallback currently ignores model identity, and Research bypasses it.
+Codex OAuth places the Research header once in the API instructions field. See
+[CLAUDE.md](CLAUDE.md) for the actual routing and
+[the OpenCode comparison](docs/notes/opencode-harness-comparison.md) for the upstream
+prompt-selection and provider-transport analysis.
 
 ### Skills
 
-Skills are instruction bundles the agent loads on demand (`src/skill`). The canonical default library is `backend/cli/skills`; releases embed a compressed, hashed copy of the complete tree and materialize it into a versioned local cache. Learned skills, user-authored skills, Git-installed skills, and project skills are also local. Skill discovery, loading, security review, installation, and removal never require the Gateway. An authenticated upgrade can perform a one-time read-only import of skill records created by older releases.
+Skills are instruction bundles the agent loads on demand (`src/skill`). The canonical default library is `backend/cli/skills`; releases embed a compressed, hashed copy of the complete tree and materialize it into a versioned local cache. User-authored skills, Git-installed skills, and project skills are also local. Skill discovery, loading, security review, installation, and removal never require the Gateway. An authenticated upgrade can perform a one-time read-only import of skill records created by older releases.
 
 ## Frontend
 
@@ -73,7 +103,10 @@ Skills are instruction bundles the agent loads on demand (`src/skill`). The cano
 ## SDK and plugins
 
 - `tooling/sdk/js` is generated from the server's OpenAPI contract. Run `./tooling/repo/generate.ts` after changing the server API to regenerate it.
-- `tooling/plugin` is the plugin runtime. Plugins receive a typed client and can add tools, providers, and hooks.
+- `tooling/sdk/js/src/v2/runtime.ts` is the stable result-oriented facade over the generated client. Its stream reconnection carries a cursor; a gap requires snapshot recovery, never another prompt.
+- `tooling/sdk/python` provides a standard-library HTTP/SSE client for Python integrations. It uses the same public protocol and is tested against the source server and a local fixture provider.
+- `tooling/plugin` is the plugin runtime. Plugins receive a project-scoped client and can add tools, providers, connectors, and hooks. String results remain valid; structured results preserve metadata and attachments while the host assigns attachment identity. Trusted plugin code runs in the host process. MCP remains the process-separated tool protocol.
+- `tooling/harbor` keeps native tasks, images, graders, limits, and aggregation in Harbor. Only the installed-agent boundary and root trajectory conversion belong here; compatibility is explicitly pinned to Harbor 0.22.0.
 
 ## Generated files and the dev loop
 
