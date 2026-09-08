@@ -508,6 +508,7 @@ describe("Storage Settings integration", () => {
       const release = path.join(project, "release")
       await fs.mkdir(project)
 
+      // waitFor() observes existence, so readiness payloads must be complete before publication.
       const ownerFile = path.join(workspace, "compute-owner.ts")
       await fs.writeFile(
         ownerFile,
@@ -536,7 +537,8 @@ describe("Storage Settings integration", () => {
           "      'import os, sys, time',",
           "      'os.setsid()',",
           "      'if os.fork(): os._exit(0)',",
-          "      `open(${JSON.stringify(childReady)}, 'w').write(str(os.getpid()))`,",
+          "      `with open(${JSON.stringify(childReady + '.tmp')}, 'x') as ready: ready.write(str(os.getpid()))`,",
+          "      `os.replace(${JSON.stringify(childReady + '.tmp')}, ${JSON.stringify(childReady)})`,",
           "      `while not os.path.exists(${JSON.stringify(release)}): time.sleep(0.02)`,",
           "      `print('surviving-child', flush=True)`,",
           "      'time.sleep(600)',",
@@ -546,7 +548,8 @@ describe("Storage Settings integration", () => {
           "    const job = await ComputeJobs.start({ name: 'survivor', command, target: { kind: 'local' }, sessionID: session.id }, { root, workspace: project })",
           "    const stored = await ComputeJobs.get(job.id, { root, workspace: project })",
           "    if (!stored?.pid || !stored.process_identity) throw new Error('compute identity was not persisted')",
-          "    await fs.writeFile(ownerReady, JSON.stringify({ id: job.id, pid: stored.pid, identity: stored.process_identity }))",
+          "    await fs.writeFile(ownerReady + '.tmp', JSON.stringify({ id: job.id, pid: stored.pid, identity: stored.process_identity }), { flag: 'wx' })",
+          "    await fs.rename(ownerReady + '.tmp', ownerReady)",
           "    await new Promise(() => undefined)",
           "  },",
           "})",
@@ -573,9 +576,12 @@ describe("Storage Settings integration", () => {
         await waitFor(childReady)
         const running = (await Bun.file(ownerReady).json()) as { id: string; pid: number; identity: string }
         childOwner = running
-        const daemonPID = Number((await fs.readFile(childReady, "utf8")).trim())
+        const daemonReady = (await fs.readFile(childReady, "utf8")).trim()
+        const daemonPID = Number(daemonReady)
+        if (!/^[1-9]\d*$/.test(daemonReady) || !Number.isSafeInteger(daemonPID) || daemonPID <= 1)
+          throw new Error(`Invalid compute daemon PID in readiness file: ${JSON.stringify(daemonReady)}`)
         const daemonIdentity = await ProcessIdentity.capture(daemonPID)
-        if (!daemonIdentity) throw new Error("compute daemon identity was not captured")
+        if (!daemonIdentity) throw new Error(`compute daemon identity was not captured for PID ${daemonPID}`)
         escaped = { pid: daemonPID, identity: daemonIdentity }
         const operations = path.join(workspace, "config", "openscience", "data-root-operations")
         const records = await Promise.all(

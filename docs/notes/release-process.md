@@ -13,6 +13,9 @@ never bump a version in a pull request, and add user-visible changes to the
    CI workflow: Typecheck, Format, the Linux test suite, web/docs and landing
    builds, migration and runtime ownership checks on their platform matrices,
    launcher/release-script smoke tests, and workflow linting.
+   Browser tests must pass on their first attempt. CI keeps one retry for
+   diagnosis, but a passing retry still fails the gate; the original failed
+   attempt's trace and screenshot remain available in the workflow artifacts.
 2. Trigger `test publish` from that exact `main` commit with packaged E2E and
    OS smokes enabled. Promotion is blocked until the exact npm candidate also
    installs and completes all five packaged scientific capability smoke

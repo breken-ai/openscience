@@ -13,10 +13,34 @@ const reasoningBody = '[data-slot="reasoning-part-body"]'
 const expansionKey = "openscience-trace-expansion-v1"
 
 async function placeInViewport(page: Page, control: Locator) {
+  await page.evaluate(() => document.fonts.ready)
+  const viewport = await page.locator(".session-scroller").boundingBox()
+  if (!viewport) throw new Error("The conversation did not render")
+  // Real scroll intent cancels the route's saved-position restoration. First
+  // move the non-sticky turn into view: a pinned button's visual box cannot
+  // tell us where its normal-flow position is.
+  await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2)
+  await page.mouse.wheel(0, -1)
+  await settleLayout(page)
+  await control.evaluate((button) => {
+    const scroller = button.closest<HTMLElement>(".session-scroller")!
+    const turn = button.closest<HTMLElement>("[data-message-id]")!
+    scroller.scrollTop += turn.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 24
+  })
+  await settleLayout(page)
   await control.evaluate((button) => {
     const scroller = button.closest<HTMLElement>(".session-scroller")!
     scroller.scrollTop += button.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 140
   })
+  await expect
+    .poll(() =>
+      control.evaluate((button) =>
+        Math.abs(
+          button.getBoundingClientRect().top - button.closest(".session-scroller")!.getBoundingClientRect().top - 140,
+        ),
+      ),
+    )
+    .toBeLessThanOrEqual(2)
   await settleLayout(page)
   const box = await control.boundingBox()
   if (!box) throw new Error("The disclosure did not render")
@@ -576,11 +600,35 @@ test("classic long-chat disclosures preserve the reader, stay per-turn, and surv
 
     const keyboardBefore = await placeInViewport(page, target)
     await target.focus()
+    await settleLayout(page)
+    expect(Math.abs((await target.boundingBox())!.y - keyboardBefore)).toBeLessThanOrEqual(2)
     await target.press("Enter")
     await expect(target).toHaveAttribute("aria-expanded", "true")
     await expect(turn(8).locator(reasoningBody)).toContainText("Reasoning complete for experiment 8.")
     await settleLayout(page)
     expect(Math.abs((await target.boundingBox())!.y - keyboardBefore)).toBeLessThanOrEqual(2)
+
+    // Test sticky geometry deliberately, separately from the inset setup.
+    await target.evaluate((button) => {
+      const scroller = button.closest<HTMLElement>(".session-scroller")!
+      scroller.scrollTop += button.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 100
+      scroller.dispatchEvent(new Event("scroll"))
+    })
+    await settleLayout(page)
+    const stickyBefore = await target.evaluate((button) => ({
+      y: button.getBoundingClientRect().y,
+      inset: button.getBoundingClientRect().y - button.closest(".session-scroller")!.getBoundingClientRect().y,
+    }))
+    expect(Math.abs(stickyBefore.inset)).toBeLessThanOrEqual(4)
+    await target.press("Enter")
+    await expect(target).toHaveAttribute("aria-expanded", "false")
+    await settleLayout(page)
+    expect(Math.abs((await target.boundingBox())!.y - stickyBefore.y)).toBeLessThanOrEqual(2)
+    await target.press("Enter")
+    await expect(target).toHaveAttribute("aria-expanded", "true")
+    await expect(turn(8).locator(reasoningBody)).toContainText("Reasoning complete for experiment 8.")
+    await settleLayout(page)
+    expect(Math.abs((await target.boundingBox())!.y - stickyBefore.y)).toBeLessThanOrEqual(2)
     await page.reload()
     await expect(target).toHaveAttribute("aria-expanded", "true")
     await expect(page.locator(reasoningBody)).toHaveCount(2)
