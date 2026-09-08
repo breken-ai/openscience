@@ -390,18 +390,46 @@ test("a resumed exact flow restarts its callback listener without creating a rep
       expect(pending?.authorizationUrl).toBe(started.authorizationUrl)
       await McpOAuthCallback.stop()
 
-      const waiting = MCP.waitForAuth(name, started.flowId).catch(() => undefined)
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const response = await fetch("http://127.0.0.1:19876/mcp/oauth/callback/health").catch(() => undefined)
-        if (response?.ok) break
-        await Bun.sleep(10)
+      const waiting = MCP.waitForAuth(name, started.flowId)
+      void waiting.catch(() => undefined)
+      try {
+        let ready = false
+        const deadline = Date.now() + 5_000
+        while (Date.now() < deadline) {
+          // Inspect the restarted listener, not a pooled socket to its previous
+          // owner. Bound each probe and consume its body before trying again.
+          const response = await fetch("http://127.0.0.1:19876/mcp/oauth/callback/health", {
+            keepalive: false,
+            signal: AbortSignal.timeout(500),
+          }).catch(() => undefined)
+          const health = await response?.json().catch(() => undefined)
+          if (response?.ok && health?.service === "openscience-mcp-oauth-callback" && health.version === 1) {
+            ready = true
+            break
+          }
+          await Bun.sleep(10)
+        }
+        expect(ready).toBe(true)
+        expect((await McpAuth.pendingOAuthFlow(name))?.state).toBe(pending!.state)
+        expect((await MCP.pendingAuth(name))?.flowId).toBe(started.flowId)
+        connectWithoutAuthorization = true
+        const callback = await fetch(
+          `http://127.0.0.1:19876/mcp/oauth/callback?state=${encodeURIComponent(pending!.state)}&code=resumed-code`,
+          { keepalive: false, signal: AbortSignal.timeout(5_000) },
+        )
+        const page = await callback.text()
+        expect(callback.status).toBe(200)
+        expect(page).toContain("Authorization Successful")
+        expect(await withTimeout(waiting, 5_000)).toEqual({ status: "connected" })
+        expect(finishAuthCalls).toBe(1)
+        expect(await McpAuth.pendingOAuthFlow(name)).toBeUndefined()
+      } finally {
+        await McpOAuthCallback.stop()
+        await withTimeout(
+          waiting.catch(() => undefined),
+          1_000,
+        )
       }
-      const callback = await fetch(
-        `http://127.0.0.1:19876/mcp/oauth/callback?state=${encodeURIComponent(pending!.state)}&code=resumed-code`,
-      )
-      expect(callback.status).toBe(200)
-      await waiting
-      expect(finishAuthCalls).toBe(1)
     },
   })
 })
