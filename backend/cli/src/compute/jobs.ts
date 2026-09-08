@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import crypto from "node:crypto"
-import { createReadStream, watch as watchFile } from "node:fs"
+import { createReadStream, createWriteStream, watch as watchFile } from "node:fs"
 import fs from "node:fs/promises"
+import { finished } from "node:stream/promises"
 import path from "node:path"
 import os from "node:os"
 import z from "zod"
@@ -2786,7 +2787,49 @@ export namespace ComputeJobs {
   ): Promise<void> {
     await fs.mkdir(logsOf(scope.root), { recursive: true })
     const log = path.join(logsOf(scope.root), `${job.id}.log`)
-    const output = await fs.open(log, "a", 0o600)
+    const output = process.platform === "win32" ? undefined : await fs.open(log, "a", 0o600)
+    // Mixed MSYS/native output was lost with a shared inherited regular file.
+    // One parent-owned writer avoids independent handle semantics and appends
+    // both pipes with standard stream backpressure and no log buffer.
+    const writer = process.platform === "win32" ? createWriteStream(log, { flags: "a", mode: 0o600 }) : undefined
+    const logFailed = Promise.withResolvers<Error>()
+    const logging = {
+      error: undefined as Error | undefined,
+      streams: [] as NonNullable<ChildProcess["stdout"]>[],
+      drains: [] as Promise<void>[],
+    }
+    const failLog = (cause: Error) => {
+      if (logging.error) return
+      logging.error = new Error(`Could not capture compute job log: ${cause.message}`, { cause })
+      logFailed.resolve(logging.error)
+    }
+    const flushed = writer ? finished(writer, { cleanup: true }).catch(failLog) : Promise.resolve()
+    const closeLog = async () => {
+      if (!writer) return output?.close()
+      if (logging.error) {
+        for (const stream of logging.streams) stream.destroy()
+        writer.destroy()
+      }
+      const drained = Promise.all(logging.drains).then(async () => {
+        if (!writer.destroyed) writer.end()
+        await flushed
+      })
+      const deadline = Promise.withResolvers<void>()
+      const timer = setTimeout(() => {
+        failLog(new Error("Output pipes did not drain after compute process cleanup"))
+        for (const stream of logging.streams) stream.destroy()
+        writer.destroy()
+        deadline.resolve()
+      }, 5_000)
+      try {
+        await Promise.race([drained, deadline.promise])
+      } finally {
+        clearTimeout(timer)
+        for (const stream of logging.streams) stream.destroy()
+        writer.destroy()
+        await flushed
+      }
+    }
     const detached = process.platform !== "win32"
     const ledgerID = credentialProcessID(scope.root, job.id)
     let launched:
@@ -2800,6 +2843,7 @@ export namespace ComputeJobs {
       launched = await AuthoritySignal.exclusive(() =>
         OpenScience.withSubprocessEnv(process.env, async (env, overlay) => {
           await currentAuthority(authority)
+          if (logging.error) throw logging.error
           const queued = (await read(scope.root)).find((item) => item.id === job.id)
           if (!queued || terminal.has(queued.status)) return
           const linuxIdentity = process.platform === "linux" ? await processIdentity(process.pid) : undefined
@@ -2821,15 +2865,29 @@ export namespace ComputeJobs {
             env: launch.runtime ? KernelEnvironmentMutation.subprocessEnv(launch.runtime, env) : env,
             detached,
             windowsHide: true,
-            stdio: ["ignore", output.fd, output.fd],
+            stdio: writer ? ["ignore", "pipe", "pipe"] : ["ignore", output!.fd, output!.fd],
           })
+          if (writer) {
+            for (const stream of [proc.stdout, proc.stderr]) {
+              if (!stream) {
+                failLog(new Error("Compute child did not expose its output pipe"))
+                continue
+              }
+              logging.streams.push(stream)
+              logging.drains.push(finished(stream, { cleanup: true }).catch(failLog))
+              stream.pipe(writer, { end: false })
+            }
+          }
           WindowsJobLauncher.bind(proc, wrapped.release)
           proc.once("exit", () => Sandbox.cleanup(launch))
           proc.once("error", () => Sandbox.cleanup(launch))
-          const result = new Promise<{ code: number | null; error?: string }>((resolve) => {
+          const exited = new Promise<{ code: number | null; error?: string }>((resolve) => {
             proc.once("error", (error) => resolve({ code: null, error: error.message }))
             proc.once("exit", (code) => resolve({ code }))
           })
+          const result = writer
+            ? Promise.race([exited, logFailed.promise.then((error) => ({ code: null, error: error.message }))])
+            : exited
           const identity = proc.pid ? await processIdentity(proc.pid) : undefined
           try {
             if (!proc.pid || !identity) {
@@ -2900,28 +2958,32 @@ export namespace ComputeJobs {
         }),
       )
     } catch (error) {
-      await output.close().catch(() => undefined)
+      await closeLog().catch(() => undefined)
       Sandbox.cleanup(launch)
       throw error
     }
     if (!launched) {
-      await output.close()
+      await closeLog()
       await deactivate(keyOf(scope.root, job.id))
       Sandbox.cleanup(launch)
       ready?.()
       return
     }
     const { proc, result, key } = launched
-    // Keep inherited log handles alive until the gated payload and its owned
-    // descendants settle. In particular, Windows starts the payload only
-    // after durable Job Object registration has released the supervisor.
-    const completed = await result.finally(async () => {
-      try {
-        await completeCredentialProcess(ledgerID)
-      } finally {
-        await output.close()
-      }
-    })
+    const outcome = await result
+      .finally(async () => {
+        try {
+          if (logging.error) await Shell.killTree(proc, { detached, exited: () => proc.exitCode !== null })
+          await completeCredentialProcess(ledgerID)
+        } finally {
+          await closeLog()
+        }
+      })
+      .catch(async (error) => {
+        await deactivate(key)
+        throw error
+      })
+    const completed = logging.error ? { code: null, error: logging.error.message } : outcome
     const captureResult = host
       ? undefined
       : await capture(job)

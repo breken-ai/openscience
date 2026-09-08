@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
+import * as nativeFS from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { ComputeJobs } from "../../src/compute/jobs"
@@ -177,7 +178,17 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
         const job = await ComputeJobs.start(
           {
             name: "Windows selected interpreter",
-            command: `printf '/fixture startup diagnostic\\n' >&2; python -c ${quote('import sys,json; json.dump({"executable":sys.executable,"version":sys.version.split()[0]},open("runtime-windows.json","w")); print("runtime stdout sentinel",flush=True); print("runtime stderr sentinel",file=sys.stderr,flush=True)')}`,
+            command: [
+              "printf '/fixture startup diagnostic\\n' >&2",
+              'printf %s "$?" > builtin-before.exit',
+              "printf 'builtin before stdout\\n'",
+              `python -c ${quote('import sys,json; json.dump({"executable":sys.executable,"version":sys.version.split()[0]},open("runtime-windows.json","w")); print("runtime stdout sentinel",flush=True); print("runtime stderr sentinel",file=sys.stderr,flush=True)')}`,
+              "code=$?",
+              "printf 'builtin middle stdout\\n'; printf 'builtin middle stderr\\n' >&2",
+              `python -c ${quote('import sys; print("second native stdout",flush=True); print("second native stderr",file=sys.stderr,flush=True)')}`,
+              "printf 'builtin after stdout\\n'; printf 'builtin after stderr\\n' >&2",
+              'exit "$code"',
+            ].join("; "),
             target: { kind: "local" },
             sessionID: session.id,
           },
@@ -199,6 +210,7 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
             }),
           ).toBe(true)
           const actual = await receipt.json()
+          expect(await Bun.file(path.join(workspace, "builtin-before.exit")).text()).toBe("0")
           expect(await fs.realpath(actual.executable)).toBe(
             await fs.realpath(path.join(prefix, "Scripts", "python.exe")),
           )
@@ -218,6 +230,17 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
           expect(log, diagnostic).toContain("/fixture startup diagnostic")
           expect(log, diagnostic).toContain("runtime stdout sentinel")
           expect(log, diagnostic).toContain("runtime stderr sentinel")
+          for (const marker of [
+            "builtin before stdout",
+            "builtin middle stdout",
+            "builtin middle stderr",
+            "second native stdout",
+            "second native stderr",
+            "builtin after stdout",
+            "builtin after stderr",
+          ]) {
+            expect(log, diagnostic).toContain(marker)
+          }
         } finally {
           const current = await ComputeJobs.get(job.id, options)
           if (current && ["pending", "running"].includes(current.status)) await ComputeJobs.cancel(job.id, options)
@@ -228,6 +251,88 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
     await Config.setSandbox(previous)
   }
 })
+
+for (const mode of ["cancel", "background", "write-error"] as const) {
+  test.skipIf(process.platform !== "win32")(`Windows compute output closes after ${mode}`, async () => {
+    if (!host) throw new Error("Local runtime fixture needs Python")
+    await using tmp = await tmpdir()
+    const previous = await Config.trustedSandbox()
+    await Config.setSandbox({ enabled: false })
+    const active = ComputeJobs.activeCount()
+    const create = nativeFS.createWriteStream
+    const writeError =
+      mode === "write-error"
+        ? spyOn(nativeFS, "createWriteStream").mockImplementation((file, options) => {
+            if (typeof file !== "string" || !file.startsWith(tmp.path) || !file.endsWith(".log")) {
+              return create(file, options)
+            }
+            // A real read-only descriptor forces the parent append writer's
+            // asynchronous I/O error. The stream is its sole owner and closes
+            // it; the child's output pipe is still valid.
+            nativeFS.writeFileSync(file, "", { mode: 0o600 })
+            return create(file, {
+              ...(typeof options === "object" ? options : {}),
+              fd: nativeFS.openSync(file, "r"),
+            })
+          })
+        : undefined
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await executionSession()
+          const workspace = await SessionFilesystem.workspace(session.id)
+          const options = { root: path.join(tmp.path, ".jobs"), projectDirectory: tmp.path, workspace }
+          const code =
+            mode === "background"
+              ? 'import sys,subprocess; subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); print("primary finished",flush=True)'
+              : 'import sys,time; print("native ready stdout",flush=True); print("native ready stderr",file=sys.stderr,flush=True); time.sleep(30)'
+          const job = await ComputeJobs.start(
+            {
+              name: `Windows output ${mode}`,
+              command: `python -c ${quote(code)}`,
+              target: { kind: "local" },
+              sessionID: session.id,
+            },
+            options,
+          )
+          try {
+            if (mode === "cancel") {
+              for (let attempt = 0; attempt < 250; attempt++) {
+                if ((await ComputeJobs.log(job.id, options)).includes("native ready stderr")) break
+                await Bun.sleep(20)
+              }
+              expect(await ComputeJobs.log(job.id, options)).toContain("native ready stderr")
+              await ComputeJobs.cancel(job.id, options)
+            }
+            const result = await ComputeJobs.wait(job.id, { ...options, timeout: 5_000 })
+            expect(result.status, JSON.stringify(result)).toBe(
+              mode === "cancel" ? "cancelled" : mode === "write-error" ? "failed" : "succeeded",
+            )
+            expect(result.lifecycle?.resource, JSON.stringify(result)).toBe("closed")
+            if (mode === "write-error") {
+              expect(result.error).toContain("Could not capture compute job log")
+            } else {
+              const log = await ComputeJobs.log(job.id, options)
+              expect(log).toContain(mode === "background" ? "primary finished" : "native ready stdout")
+              if (mode === "cancel") expect(log).toContain("native ready stderr")
+            }
+          } finally {
+            const current = await ComputeJobs.get(job.id, options)
+            if (current && ["pending", "running"].includes(current.status)) await ComputeJobs.cancel(job.id, options)
+            for (let attempt = 0; attempt < 250 && ComputeJobs.activeCount() > active; attempt++) {
+              await Bun.sleep(20)
+            }
+            expect(ComputeJobs.activeCount()).toBe(active)
+          }
+        },
+      })
+    } finally {
+      writeError?.mockRestore()
+      await Config.setSandbox(previous)
+    }
+  })
+}
 
 for (const enabled of [false, true]) {
   test.skipIf(process.platform === "win32" || (enabled && !Sandbox.available()))(

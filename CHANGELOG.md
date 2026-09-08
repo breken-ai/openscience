@@ -22,7 +22,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
   metadata honestly. Explain changes to advertised tools at the provider boundary.
 - Discover Git Bash across Windows installation layouts and require a POSIX shell
   for local compute, so a fallback command prompt cannot report success without
-  executing the job script.
+  executing the job script. Capture mixed shell and native-program output through
+  one append writer, and flush it before reporting completion.
 - Keep delegated-agent progress connected throughout execution and propagate parent
   cancellation through child preparation, resumed work and active model requests.
   Normalize empty continuation fields and stop repeated same-cause failures even

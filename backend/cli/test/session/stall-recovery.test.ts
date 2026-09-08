@@ -23,6 +23,7 @@ test.each(["silence", "keepalive", "private-reasoning"])(
   async (mode) => {
     let requests = 0
     let cancelled = false
+    let ready = false
     const timers = new Set<ReturnType<typeof setInterval>>()
     using server = Bun.serve({
       hostname: "127.0.0.1",
@@ -43,16 +44,20 @@ test.each(["silence", "keepalive", "private-reasoning"])(
                 encoder.encode(chunk({ role: "assistant", reasoning_content: "Saved partial reasoning." })),
               )
               controller.enqueue(encoder.encode(chunk({ content: "Saved partial answer." })))
-              if (mode === "silence") return
-              timer = setInterval(
-                () =>
-                  controller.enqueue(
-                    encoder.encode(
-                      mode === "keepalive" ? ": PROCESSING\n\n" : chunk({ reasoning_content: "[REDACTED]" }),
-                    ),
+              // Do not begin the intentional stall until the real session has
+              // persisted both seed parts. SDK startup and storage are not a
+              // subsecond timing contract, especially in the full CI shard.
+              timer = setInterval(() => {
+                if (ready && mode === "silence") {
+                  clearInterval(timer)
+                  return
+                }
+                controller.enqueue(
+                  encoder.encode(
+                    !ready || mode === "keepalive" ? ": PROCESSING\n\n" : chunk({ reasoning_content: "[REDACTED]" }),
                   ),
-                20,
-              )
+                )
+              }, 20)
               timers.add(timer)
             },
             cancel() {
@@ -73,9 +78,9 @@ test.each(["silence", "keepalive", "private-reasoning"])(
           ...base.provider[STRESS_PROVIDER_ID],
           options: {
             ...base.provider[STRESS_PROVIDER_ID].options,
-            connectTimeout: 2_000,
-            idleTimeout: mode === "silence" ? 160 : 2_000,
-            outputIdleTimeout: 240,
+            connectTimeout: 5_000,
+            idleTimeout: mode === "silence" ? 1_000 : 5_000,
+            outputIdleTimeout: 2_000,
           },
         },
       },
@@ -90,13 +95,33 @@ test.each(["silence", "keepalive", "private-reasoning"])(
         },
         fn: async () => {
           const session = await Session.create({ title: "Stall recovery" })
-          const result = await SessionPrompt.prompt({
+          let settled = false
+          const pending = SessionPrompt.prompt({
             sessionID: session.id,
             model: { providerID: STRESS_PROVIDER_ID, modelID: STRESS_PROVIDER_MODEL },
             agent: "research",
             delegation: false,
             system: marker,
             parts: [{ type: "text", text: "Answer once." }],
+          }).finally(() => {
+            settled = true
+          })
+          void pending.catch(() => undefined)
+          const result = await (async () => {
+            const deadline = Date.now() + 5_000
+            while (Date.now() < deadline) {
+              const parts = (await Session.messages({ sessionID: session.id })).flatMap((message) => message.parts)
+              ready =
+                parts.some((part) => part.type === "text" && part.text.includes("Saved partial answer.")) &&
+                parts.some((part) => part.type === "reasoning" && part.text.includes("Saved partial reasoning."))
+              if (ready || settled) break
+              await Bun.sleep(100)
+            }
+            expect(ready, "seed parts must be durable before the intentional stall").toBe(true)
+            return await pending
+          })().finally(async () => {
+            if (!settled) await SessionPrompt.cancel(session.id)
+            await pending.catch(() => undefined)
           })
           expect(requests).toBe(1)
           expect(result.info).toMatchObject({
