@@ -925,6 +925,11 @@ export default function Page(): JSX.Element {
     restoration.target = undefined
   }
 
+  const followLatest = () => {
+    cancelRestoration()
+    chatScroll.forceScrollToBottom()
+  }
+
   const applyRestoration = () => {
     const target = restoration.target
     const element = chatElement
@@ -1390,12 +1395,7 @@ export default function Page(): JSX.Element {
 
                     <div class="session-jump-latest-rail" aria-live="polite">
                       <Show when={chatScroll.userScrolled()}>
-                        <button
-                          type="button"
-                          class="session-jump-latest"
-                          onClick={() => chatScroll.forceScrollToBottom()}
-                          title="Jump to Latest"
-                        >
+                        <button type="button" class="session-jump-latest" onClick={followLatest} title="Jump to Latest">
                           <IconChevronDown size={13} strokeWidth={1.6} />
                           Jump to Latest
                         </button>
@@ -1437,7 +1437,7 @@ export default function Page(): JSX.Element {
                       </button>
                     </div>
                   </Show>
-                  <PromptInput />
+                  <PromptInput onSubmit={followLatest} />
                 </div>
               </div>
             </section>

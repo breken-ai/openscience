@@ -1122,18 +1122,22 @@ export namespace File {
   }
 
   /**
-   * Resolve a chat-authored relative file reference across the exact roots the
-   * active session may read. Managed projects intentionally keep their durable
-   * directory separate from user-connected source folders, so joining every
+   * Resolve a chat-authored relative reference or an exact absolute receipt
+   * across the roots the active session may read. Managed projects keep their
+   * durable directory separate from user-connected source folders, so joining every
    * relative link to Instance.directory alone cannot open those source files.
    *
-   * Explicit relative paths are checked directly. A bare filename gets a
-   * bounded recursive lookup. Both modes fail closed when multiple authorized
+   * Absolute receipts never fall back to a different file. Relative paths are
+   * checked directly; a bare filename gets a bounded recursive lookup.
+   * Relative lookups fail closed when multiple authorized
    * files match, and the eventual read still re-authorizes the returned path so
    * revocation wins between resolution and I/O.
    */
   export async function resolveReference(reference: string, options: { sessionID: string }) {
-    const requested = relativeReference(reference)
+    const input = reference.trim()
+    if (!input || input.length > 4_096 || input.includes("\0")) return
+    const absolute = path.isAbsolute(input)
+    const requested = absolute ? input : relativeReference(input)
     if (!requested) return
 
     // Preview is brokered I/O, not a native process. Exact session-owned tool
@@ -1166,6 +1170,11 @@ export namespace File {
       if (!regular) return
       if (!(await SessionFilesystem.allows({ sessionID: options.sessionID, path: canonical, access: "read" }))) return
       matches.add(canonical)
+    }
+
+    if (absolute) {
+      for (const root of roots) await add(requested, root.path)
+      return matches.size === 1 ? matches.values().next().value : undefined
     }
 
     const nested = requested.includes("/")

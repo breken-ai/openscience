@@ -257,7 +257,7 @@ export const FileRoutes = lazy(() =>
       describeRoute({
         summary: "Resolve a session file reference",
         description:
-          "Resolve an unambiguous relative file reference across project, session, and connected roots authorized for the active session.",
+          "Resolve an exact absolute file receipt or an unambiguous relative reference across project, session, and connected roots authorized for the active session. Absolute paths never fall back to a filename search.",
         operationId: "file.resolveReference",
         responses: {
           200: {

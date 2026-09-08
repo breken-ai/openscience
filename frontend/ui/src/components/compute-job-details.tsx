@@ -14,9 +14,11 @@ export function ComputeJobDetails(props: { id: string }) {
         (job) => ({ job, error: undefined }),
         () => ({ job: undefined, error: "Current job status could not be read." }),
       ),
+    // Keep loading and refresh states local to this panel, not the chat route.
+    { initialValue: { job: undefined, error: undefined } },
   )
   createEffect(() => {
-    const job = current()?.job
+    const job = current.latest.job
     if (!view.open || !job) return
     const pending =
       ["queued", "running"].includes(job.status) ||
@@ -35,11 +37,13 @@ export function ComputeJobDetails(props: { id: string }) {
       </Button>
       <Show when={view.open}>
         <div data-component="compute-job-details" aria-busy={current.loading}>
-          <Show when={!current.loading || current()} fallback={<p>Reading current job…</p>}>
+          <Show when={!current.loading || current.latest.job} fallback={<p>Reading current job…</p>}>
             <Show
-              when={current()?.job}
+              when={current.latest.job}
               fallback={
-                <p>{current()?.error ?? "This job is no longer available. The action receipt is retained below."}</p>
+                <p>
+                  {current.latest.error ?? "This job is no longer available. The action receipt is retained below."}
+                </p>
               }
             >
               {(job) => (

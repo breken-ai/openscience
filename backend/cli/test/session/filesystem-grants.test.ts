@@ -1088,6 +1088,52 @@ describe("session filesystem grants", () => {
 })
 
 describe("file access uses session grants", () => {
+  test("resolves exact canonical output receipts without crossing session authority", async () => {
+    await using external = await tmpdir({ init: (directory) => Bun.write(path.join(directory, "secret.json"), "{}") })
+    await using tmp = await tmpdir()
+    await withSession(tmp.path, async (session) => {
+      const sibling = await Session.create({ parentID: session.id })
+      await using cleanup = { [Symbol.asyncDispose]: () => Session.remove(sibling.id) }
+      const scratch = await SessionFilesystem.workspace(session.id)
+      const siblingScratch = await SessionFilesystem.workspace(sibling.id)
+      const projectFile = path.join(tmp.path, "result.json")
+      const scratchFile = path.join(scratch, "result.json")
+      const siblingFile = path.join(siblingScratch, "private.json")
+      const recoveryFile = path.join(tmp.path, ".openscience-trash", "hidden.json")
+      await Promise.all([projectFile, scratchFile, siblingFile, recoveryFile].map((target) => Bun.write(target, "{}")))
+      await fs.symlink(external.path, path.join(tmp.path, "linked"), process.platform === "win32" ? "junction" : "dir")
+      const grants = await SessionFilesystem.list(session.id)
+      const resolve = async (target: string, sessionID = session.id) => {
+        const response = await FileRoutes().request(`/file/resolve?${new URLSearchParams({ path: target, sessionID })}`)
+        expect(response.status).toBe(200)
+        return response.json()
+      }
+      for (const target of [projectFile, scratchFile]) {
+        expect(await resolve(target)).toEqual({ path: target, writable: true, scope: "session" })
+        const content = await FileRoutes().request(
+          `/file/content?${new URLSearchParams({ path: target, sessionID: session.id })}`,
+        )
+        expect(content.status).toBe(200)
+        expect(await content.json()).toMatchObject({ content: "{}" })
+      }
+      for (const target of [
+        "result.json", // Relative basename remains ambiguous across the two authorized roots.
+        path.join(scratch, "missing", "result.json"), // An absolute miss must not search for a namesake.
+        path.join(external.path, "secret.json"),
+        path.join(tmp.path, "linked", "secret.json"),
+        siblingFile,
+        scratch, // Directories and protected recovery files are not output receipts.
+        recoveryFile,
+      ]) {
+        expect(await resolve(target)).toEqual({ path: null, writable: null, scope: null })
+      }
+      expect(await resolve(scratchFile, sibling.id)).toEqual({ path: null, writable: null, scope: null })
+      await fs.rm(scratchFile)
+      expect(await resolve(scratchFile)).toEqual({ path: null, writable: null, scope: null })
+      expect(await SessionFilesystem.list(session.id)).toEqual(grants)
+    })
+  })
+
   test("resolves session-owned tool output links without granting sibling or process access", async () => {
     await using tmp = await tmpdir()
     await withSession(tmp.path, async (session) => {
@@ -1102,8 +1148,10 @@ describe("file access uses session grants", () => {
       const name = path.basename(target)
       expect(await SessionFilesystem.processReadRoots(session.id)).not.toContain(target)
       expect(await File.resolveReference(name, { sessionID: session.id })).toBe(target)
+      expect(await File.resolveReference(target, { sessionID: session.id })).toBe(target)
       expect((await File.read(target, { sessionID: session.id })).content).toContain("trajectory evidence")
       expect(await File.resolveReference(name, { sessionID: sibling.id })).toBeUndefined()
+      expect(await File.resolveReference(target, { sessionID: sibling.id })).toBeUndefined()
       await expect(File.read(target, { sessionID: sibling.id })).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)
       const grant = (await SessionFilesystem.list(session.id)).find(
         (item) => item.path === target && item.source === "tool",
@@ -1111,6 +1159,7 @@ describe("file access uses session grants", () => {
       if (!grant) throw new Error("missing tool output grant")
       await SessionFilesystem.revoke(session.id, grant.id)
       expect(await File.resolveReference(name, { sessionID: session.id })).toBeUndefined()
+      expect(await File.resolveReference(target, { sessionID: session.id })).toBeUndefined()
     })
   })
 
@@ -1182,13 +1231,18 @@ describe("file access uses session grants", () => {
       expect(await (await resolve("unique.csv")).json()).toEqual({ path: null, writable: null, scope: null })
       expect(await (await resolve("../board.py")).json()).toEqual({ path: null, writable: null, scope: null })
       expect(await (await resolve(path.join(source.path, "ioai_final", "board.py"))).json()).toEqual({
-        path: null,
-        writable: null,
-        scope: null,
+        path: path.join(source.path, "ioai_final", "board.py"),
+        writable: false,
+        scope: "session",
       })
 
       await SessionFilesystem.revoke(session.id, sourceGrant.id)
       expect(await (await resolve("ioai_final/board.py")).json()).toEqual({ path: null, writable: null, scope: null })
+      expect(await (await resolve(path.join(source.path, "ioai_final", "board.py"))).json()).toEqual({
+        path: null,
+        writable: null,
+        scope: null,
+      })
       await expect(
         File.read(path.join(source.path, "ioai_final", "board.py"), { sessionID: session.id }),
       ).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)

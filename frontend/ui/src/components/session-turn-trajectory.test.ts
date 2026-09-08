@@ -27,6 +27,7 @@ const vite = await createServer({
   ssr: { noExternal: true, external: ["fuzzysort"], resolve: { conditions: ["browser", "production"] } },
 })
 const web = (await vite.ssrLoadModule("solid-js/web")) as typeof import("solid-js/web")
+const solidRuntime = (await vite.ssrLoadModule("solid-js")) as typeof import("solid-js")
 const reactive = (await vite.ssrLoadModule("solid-js/store")) as typeof import("solid-js/store")
 const data = (await vite.ssrLoadModule("@synsci/ui/context/data")) as typeof import("../context/data")
 const dialog = (await vite.ssrLoadModule("@synsci/ui/context/dialog")) as typeof import("../context/dialog")
@@ -2029,4 +2030,136 @@ test("unavailable file checks stay explicit and can recover without offering unv
   ;[...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Retry file check"))!.click()
   await ready(() => host.querySelector('[data-slot="session-turn-output-file"]') !== null)
   expect(host.textContent).not.toContain("outputs could not be checked")
+})
+
+test("file receipt checks never suspend the conversation during initial load, submit, or retry", async () => {
+  const message = assistant(3000)
+  const file = "/research/result.json"
+  const patch: Part = {
+    id: "prt_nonblocking_receipt",
+    sessionID,
+    messageID: message.id,
+    type: "patch",
+    hash: "hash",
+    files: [file],
+  }
+  const [store, setStore] = reactive.createStore<Store>({
+    ...empty(),
+    session_status: { [sessionID]: { type: "idle" } },
+    message: { [sessionID]: [user, message] },
+    part: { [user.id]: [], [message.id]: [patch] },
+  })
+  const checks: Array<{ resolve: (paths: string[]) => void; reject: (error: Error) => void }> = []
+  const host = mount(
+    () =>
+      solidRuntime.Suspense({
+        fallback: "RECEIPT_SUSPENSE_FALLBACK",
+        get children() {
+          return web.createComponent(turn.SessionTurn, { sessionID, messageID: user.id })
+        },
+      }),
+    store,
+    {
+      saveArtifact: async () => {},
+      resolveFileReceipts: (id, paths) => {
+        expect(id).toBe(sessionID)
+        expect(paths).toEqual([file])
+        return new Promise<string[]>((resolve, reject) => checks.push({ resolve, reject }))
+      },
+    },
+  )
+  await ready(() => checks.length === 1)
+  const transcript = host.querySelector('[data-component="session-turn"]')
+  expect(transcript).not.toBeNull()
+  const stillMounted = () => {
+    expect(transcript!.isConnected).toBe(true)
+    expect(host.querySelector('[data-component="session-turn"]')).toBe(transcript)
+    expect(host.textContent).not.toContain("RECEIPT_SUSPENSE_FALLBACK")
+  }
+  const output = () => host.querySelector<HTMLButtonElement>('[data-slot="session-turn-output-file"]')
+  stillMounted()
+  expect(output()).toBeNull()
+
+  checks[0].resolve([file])
+  await ready(() => output()?.title === file)
+  setStore("session_status", sessionID, { type: "busy" })
+  await ready(() => checks.length === 2)
+  stillMounted()
+  checks[1].resolve([])
+  await settle()
+  setStore("session_status", sessionID, { type: "idle" })
+  await ready(() => checks.length === 3)
+  stillMounted()
+  expect(output()).toBeNull()
+
+  checks[2].reject(new Error("offline"))
+  await ready(() => host.textContent?.includes("outputs could not be checked") === true)
+  stillMounted()
+  expect(output()).toBeNull()
+  ;[...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Retry file check"))!.click()
+  await ready(() => checks.length === 4)
+  stillMounted()
+  expect(output()).toBeNull()
+  checks[3].resolve([file])
+  await ready(() => output()?.title === file)
+  stillMounted()
+  expect(host.textContent).not.toContain("outputs could not be checked")
+})
+
+test("current job lookups and refreshes keep the transcript mounted under Suspense", async () => {
+  type Job = Awaited<ReturnType<NonNullable<Callbacks["loadComputeJob"]>>>
+  const checks: Array<{ resolve: (job: Job) => void; reject: (error: Error) => void }> = []
+  const host = mount(
+    () =>
+      solidRuntime.Suspense({
+        fallback: "JOB_SUSPENSE_FALLBACK",
+        get children() {
+          return web.createComponent(compute.ComputeJobDetails, { id: "job_live" })
+        },
+      }),
+    empty(),
+    {
+      loadComputeJob: (id) => {
+        expect(id).toBe("job_live")
+        return new Promise<Job>((resolve, reject) => checks.push({ resolve, reject }))
+      },
+    },
+  )
+  const toggle = [...host.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("View current job"),
+  )!
+  toggle.click()
+  await ready(() => checks.length === 1)
+  const stillMounted = () => {
+    expect(toggle.isConnected).toBe(true)
+    expect(host.contains(toggle)).toBe(true)
+    expect(host.textContent).not.toContain("JOB_SUSPENSE_FALLBACK")
+  }
+  stillMounted()
+  expect(host.textContent).toContain("Reading current job")
+  expect(host.textContent).not.toContain("Current status:")
+
+  const job = { id: "job_live", name: "Fixture job", command: "offline" }
+  checks[0].resolve({ ...job, status: "running" })
+  await ready(() => host.textContent?.includes("Current status: running") === true)
+  const refresh = () =>
+    [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Refresh current status"))!
+  refresh().click()
+  await ready(() => checks.length === 2)
+  stillMounted()
+  expect(host.querySelector('[data-component="compute-job-details"]')?.getAttribute("aria-busy")).toBe("true")
+  expect(host.textContent).toContain("Current status: running")
+
+  checks[1].reject(new Error("offline"))
+  await ready(() => host.textContent?.includes("Current job status could not be read") === true)
+  stillMounted()
+  expect(host.textContent).not.toContain("Current status: running")
+  refresh().click()
+  await ready(() => checks.length === 3)
+  stillMounted()
+  checks[2].resolve({ ...job, status: "succeeded", exit_code: 0 })
+  await ready(() => host.textContent?.includes("Current status: succeeded") === true)
+  stillMounted()
+  expect(host.textContent).toContain("Exit code: 0")
+  expect(host.textContent).not.toContain("Current job status could not be read")
 })
