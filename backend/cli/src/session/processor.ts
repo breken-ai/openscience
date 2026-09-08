@@ -396,6 +396,7 @@ export namespace SessionProcessor {
   export function createToolOutcomeCoordinator(input: {
     abort: AbortSignal
     updatePart: (part: MessageV2.ToolPart) => Promise<unknown>
+    identity?: { messageID: string; sessionID: string }
     onRejected?: (error: unknown) => void
     onActive?: (active: boolean) => void
   }) {
@@ -526,8 +527,14 @@ export namespace SessionProcessor {
         await input.updatePart(match)
       },
       async running(part: MessageV2.ToolPart) {
+        if (settled.has(part.callID)) {
+          const terminal = terminalParts.get(part.callID)
+          if (terminal) await input.updatePart(terminal)
+          return false
+        }
         toolcalls[part.callID] = part
         await apply(part.callID)
+        return true
       },
       metadata(callID: string, args: unknown, value: ToolMetadataUpdate) {
         const previous = metadataWrites.get(callID) ?? Promise.resolve()
@@ -568,7 +575,8 @@ export namespace SessionProcessor {
         if (executions.has(callID)) return
         await fail(callID, args, error, startedAt)
       },
-      execute<T extends ToolExecutionOutput>(callID: string, args: unknown, run: () => Promise<T>) {
+      execute<T extends ToolExecutionOutput>(callID: string, args: unknown, run: () => Promise<T>, name?: string) {
+        if (name) coordinator.claim(callID, name)
         const signature = SearchDedupe.signature(args)
         const existing = executions.get(callID)
         if (existing) {
@@ -576,7 +584,29 @@ export namespace SessionProcessor {
           return existing.promise as Promise<T>
         }
         const startedAt = Date.now()
+        const previous = toolcalls[callID]
+        const canonical = names.get(callID)
+        const register = (() => {
+          if (!canonical || !input.identity || previous?.state.status === "running") return Promise.resolve()
+          const part: MessageV2.ToolPart = {
+            id: previous?.id ?? Identifier.ascending("part"),
+            messageID: input.identity.messageID,
+            sessionID: input.identity.sessionID,
+            type: "tool",
+            callID,
+            tool: canonical,
+            state: {
+              status: "running",
+              input: args as Record<string, unknown>,
+              ...(previous?.state.status === "pending" && previous.state.raw ? { raw: previous.state.raw } : {}),
+              time: { start: startedAt },
+            },
+          }
+          toolcalls[callID] = part
+          return input.updatePart(part).then(() => undefined)
+        })()
         const execution = Promise.resolve()
+          .then(() => register)
           .then(run)
           .then(
             async (output) => {
@@ -608,13 +638,26 @@ export namespace SessionProcessor {
         return active.size > 0
       },
       async drain() {
-        const pending = [...active.values()]
-        if (!pending.length || input.abort.aborted) return
+        const pending = [...active.entries()]
+        if (!pending.length) return
+        const tasks = pending
+          .filter(([callID]) => toolcalls[callID]?.tool === "task" || names.get(callID) === "task")
+          .map(([, execution]) => execution)
+        // Task owns an abort-aware child loop and always resolves its durable
+        // partial receipt after cancellation. Wait for that local finalization
+        // so the parent cannot replace completed child work with a generic
+        // aborted-tool error. Other tools may ignore cancellation, so they must
+        // never hold Stop open.
+        if (input.abort.aborted) {
+          await Promise.all(tasks)
+          return
+        }
         const aborted = Promise.withResolvers<void>()
         const onAbort = () => aborted.resolve()
         input.abort.addEventListener("abort", onAbort, { once: true })
         try {
-          await Promise.race([Promise.all(pending), aborted.promise])
+          await Promise.race([Promise.all(pending.map(([, execution]) => execution)), aborted.promise])
+          if (input.abort.aborted) await Promise.all(tasks)
         } finally {
           input.abort.removeEventListener("abort", onAbort)
         }
@@ -657,6 +700,7 @@ export namespace SessionProcessor {
     const toolOutcomes = createToolOutcomeCoordinator({
       abort: input.abort,
       updatePart: Session.updatePart,
+      identity: { messageID: input.assistantMessage.id, sessionID: input.assistantMessage.sessionID },
       onActive: (active) => output?.pause(active),
       onRejected(error) {
         if (error instanceof InvalidCall.RepeatedError) {
@@ -693,8 +737,13 @@ export namespace SessionProcessor {
       partFromToolCall(toolCallID: string) {
         return toolOutcomes.part(toolCallID)
       },
-      executeTool<T extends ToolExecutionOutput>(toolCallID: string, args: unknown, run: () => Promise<T>) {
-        return toolOutcomes.execute(toolCallID, args, run)
+      executeTool<T extends ToolExecutionOutput>(
+        toolCallID: string,
+        toolName: string,
+        args: unknown,
+        run: () => Promise<T>,
+      ) {
+        return toolOutcomes.execute(toolCallID, args, run, toolName)
       },
       async toolResult(toolCallID: string, args: unknown, output: ToolExecutionOutput) {
         await toolOutcomes.result(toolCallID, args, output)
@@ -912,6 +961,7 @@ export namespace SessionProcessor {
                 case "tool-input-start":
                   toolOutcomes.claim(value.id, value.toolName)
                   if (toolOutcomes.closed(value.id)) break
+                  if (toolOutcomes.part(value.id)?.state.status === "running") break
                   const part = await Session.updatePart({
                     id: toolOutcomes.part(value.id)?.id ?? Identifier.ascending("part"),
                     messageID: input.assistantMessage.id,
@@ -938,7 +988,7 @@ export namespace SessionProcessor {
 
                 case "tool-call": {
                   const match = toolOutcomes.part(value.toolCallId)
-                  if (match) {
+                  if (match && !toolOutcomes.closed(value.toolCallId)) {
                     const part = await Session.updatePart({
                       ...match,
                       tool: value.toolName,
@@ -959,51 +1009,55 @@ export namespace SessionProcessor {
                     // execute wrapper records that authoritative outcome, so
                     // reconcile it as soon as the call part exists.
                     await toolOutcomes.running(part as MessageV2.ToolPart)
+                  }
 
-                    const parts = turnParts(
-                      [
-                        ...(await history()),
-                        { info: input.assistantMessage, parts: await MessageV2.parts(input.assistantMessage.id) },
-                      ],
-                      input.assistantMessage.parentID,
-                    )
-                    const repeated =
-                      value.toolName === "invalid"
-                        ? isMalformedLoop(parts, value.input)
-                        : isDoomLoop(parts, value.toolName, value.input)
+                  // An execute-first tool may already be terminal when its
+                  // stream event arrives. Keep that terminal receipt, while
+                  // still applying the same repeated-call guard as every other
+                  // observed tool call.
+                  const parts = turnParts(
+                    [
+                      ...(await history()),
+                      { info: input.assistantMessage, parts: await MessageV2.parts(input.assistantMessage.id) },
+                    ],
+                    input.assistantMessage.parentID,
+                  )
+                  const repeated =
+                    value.toolName === "invalid"
+                      ? isMalformedLoop(parts, value.input)
+                      : isDoomLoop(parts, value.toolName, value.input)
 
-                    if (repeated) {
-                      if (value.toolName === "invalid") {
-                        const source = InvalidCall.signature(value.input).split(":", 1)[0]
-                        blocked = true
-                        await Session.updatePart({
-                          id: Identifier.ascending("part"),
-                          messageID: input.assistantMessage.id,
-                          sessionID: input.sessionID,
-                          type: "text",
-                          synthetic: true,
-                          text: `OpenScience stopped two repeated incomplete ${source} calls before execution. No action was taken.`,
-                          time: { start: Date.now(), end: Date.now() },
-                        } satisfies MessageV2.TextPart)
-                        break
-                      }
-                      const agent = await Agent.get(input.assistantMessage.agent)
-                      await PermissionNext.ask(
-                        {
-                          permission: "doom_loop",
-                          patterns: [value.toolName],
-                          sessionID: input.assistantMessage.sessionID,
-                          mode: (await ProjectAccess.status(Instance.project)).mode,
-                          metadata: {
-                            tool: value.toolName,
-                            input: value.input,
-                          },
-                          always: [value.toolName],
-                          ruleset: agent.permission,
-                        },
-                        input.abort,
-                      )
+                  if (repeated) {
+                    if (value.toolName === "invalid") {
+                      const source = InvalidCall.signature(value.input).split(":", 1)[0]
+                      blocked = true
+                      await Session.updatePart({
+                        id: Identifier.ascending("part"),
+                        messageID: input.assistantMessage.id,
+                        sessionID: input.sessionID,
+                        type: "text",
+                        synthetic: true,
+                        text: `OpenScience stopped two repeated incomplete ${source} calls before execution. No action was taken.`,
+                        time: { start: Date.now(), end: Date.now() },
+                      } satisfies MessageV2.TextPart)
+                      break
                     }
+                    const agent = await Agent.get(input.assistantMessage.agent)
+                    await PermissionNext.ask(
+                      {
+                        permission: "doom_loop",
+                        patterns: [value.toolName],
+                        sessionID: input.assistantMessage.sessionID,
+                        mode: (await ProjectAccess.status(Instance.project)).mode,
+                        metadata: {
+                          tool: value.toolName,
+                          input: value.input,
+                        },
+                        always: [value.toolName],
+                        ruleset: agent.permission,
+                      },
+                      input.abort,
+                    )
                   }
                   break
                 }

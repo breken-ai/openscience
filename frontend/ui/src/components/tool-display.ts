@@ -504,11 +504,27 @@ export function writtenFiles(
 ): string[] {
   const files: string[] = []
   const seen = new Set<string>()
-  const push = (value: unknown) => {
-    if (typeof value !== "string" || !value || seen.has(value)) return
-    if (options?.canonicalOnly && !absolute.test(value)) return
-    seen.add(value)
-    files.push(value)
+  const removed = new Set<string>()
+  const resolve = (value: unknown) => {
+    if (typeof value !== "string" || !value) return
+    const result = options?.resolve ? options.resolve(value) : value
+    if (!result || (options?.canonicalOnly && !absolute.test(result))) return
+    return result
+  }
+  const push = (value: unknown, authoritative = true) => {
+    const result = resolve(value)
+    if (!result || seen.has(result) || (!authoritative && removed.has(result))) return
+    if (authoritative) removed.delete(result)
+    seen.add(result)
+    files.push(result)
+  }
+  const remove = (value: unknown) => {
+    const result = resolve(value)
+    if (!result) return
+    removed.add(result)
+    seen.delete(result)
+    const index = files.indexOf(result)
+    if (index >= 0) files.splice(index, 1)
   }
   for (const part of parts) {
     if (part.type === "patch") {
@@ -516,13 +532,28 @@ export function writtenFiles(
       // else is not a receipt.
       for (const file of Array.isArray(part.files) ? part.files : []) {
         if (typeof file !== "string" || !absolute.test(file)) continue
-        push(options?.resolve ? options.resolve(file) : file)
+        push(file, false)
       }
       continue
     }
-    if (part.type !== "tool" || part.state?.status !== "completed") continue
+    if (part.type !== "tool" || !part.state) continue
     const input = (part.state.input ?? {}) as Record<string, unknown>
     const metadata = (part.state.metadata ?? {}) as Record<string, unknown>
+    const settledTask = part.tool === "task" && metadata.outcome === "partial"
+    if (part.state.status !== "completed" && !settledTask) continue
+    if (part.tool === "task") {
+      const evidence = metadata.evidence
+      if (evidence && typeof evidence === "object" && "mutations" in evidence) {
+        const mutations = (evidence as Record<string, unknown>).mutations
+        for (const mutation of Array.isArray(mutations) ? mutations : []) {
+          if (!mutation || typeof mutation !== "object") continue
+          const record = mutation as Record<string, unknown>
+          for (const file of Array.isArray(record.removed) ? record.removed : []) remove(file)
+          const recorded = record.files
+          for (const file of Array.isArray(recorded) ? recorded : []) push(file)
+        }
+      }
+    }
     if (part.tool === "write" || part.tool === "edit" || part.tool === "multiedit") {
       const diff = metadata.filediff
       const canonical =
@@ -538,7 +569,7 @@ export function writtenFiles(
         !absolute.test(file.path)
       )
         continue
-      push(options?.resolve ? options.resolve(file.path) : file.path)
+      push(file.path)
     }
     if (["notebook", "python", "r", "rkernel"].includes(part.tool ?? "")) {
       for (const file of Array.isArray(metadata.files) ? metadata.files : []) push(file)
@@ -553,17 +584,7 @@ export function writtenFiles(
       if (!change || typeof change !== "object") continue
       const record = change as Record<string, unknown>
       if (record.type === "delete" || record.movePath) {
-        const removed =
-          typeof record.filePath === "string"
-            ? options?.resolve
-              ? options.resolve(record.filePath)
-              : record.filePath
-            : undefined
-        if (removed) {
-          seen.delete(removed)
-          const index = files.indexOf(removed)
-          if (index >= 0) files.splice(index, 1)
-        }
+        remove(record.filePath)
       }
       if (record.type === "delete") continue
       push(record.movePath ?? record.filePath)

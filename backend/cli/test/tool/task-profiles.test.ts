@@ -21,6 +21,7 @@ import { tmpdir } from "../fixture/fixture"
 import { MessageV2 } from "../../src/session/message-v2"
 import { Session } from "../../src/session"
 import { Tool } from "../../src/tool/tool"
+import { CredentialRevocation } from "../../src/credentials/revocation"
 
 test("Task validation normalizes omitted, null and blank continuation fields before dispatch", async () => {
   await using tmp = await tmpdir()
@@ -373,6 +374,23 @@ test("Task outcomes distinguish bounded partial work from completion and failure
   expect(classifyTaskOutcome({ error: { name: "UnknownError" }, hasText: true })).toEqual({
     outcome: "partial",
     stopReason: "provider_error",
+  })
+  expect(classifyTaskOutcome({ error: new DOMException("Parent stopped", "AbortError") })).toEqual({
+    outcome: "partial",
+    stopReason: "cancelled",
+  })
+  expect(
+    classifyTaskOutcome({
+      error: new MessageV2.AbortedError({ message: "Parent stopped" }).toObject(),
+      hasText: true,
+    }),
+  ).toEqual({
+    outcome: "partial",
+    stopReason: "cancelled",
+  })
+  expect(classifyTaskOutcome({ error: new CredentialRevocation.Interruption("provider-config.update") })).toEqual({
+    outcome: "partial",
+    stopReason: "cancelled",
   })
   expect(classifyTaskOutcome({ finish: "stop", toolCalls: 5, failedToolCalls: 5 })).toEqual({
     outcome: "partial",

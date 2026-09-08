@@ -10,6 +10,11 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Preserve completed delegated work when a task is cancelled, report the
+  worker's actual outcome and changed files to both the lead and UI, and bound
+  silent remote response bodies without cutting off active streams. Keep the
+  conversation mounted while execution-access settings refresh, and describe
+  request waits by the transport phase OpenScience actually observed.
 - Retry transient Windows sharing errors when atomically saving compute job status,
   preserving the previous file and reporting persistent storage failures.
 - Keep settings dropdowns inside their dialog so assistive technology can reach

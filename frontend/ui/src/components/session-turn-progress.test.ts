@@ -26,6 +26,7 @@ const at = (phase: SessionRequestProgress["phase"], extra: Partial<SessionReques
 
 describe("request phase status copy", () => {
   test("each live phase names the model and the honest elapsed time", () => {
+    expect(en["ui.sessionTurn.progress.stillConnecting"]).toBe("Waiting for a response from {{model}} ({{seconds}}s)")
     expect(progressStatus(at("connecting"), since + PROGRESS_SLOW_MS - 1)).toEqual({
       key: "ui.sessionTurn.progress.connecting",
       params: { model: "openai/gpt-5.6-sol" },

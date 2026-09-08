@@ -1121,13 +1121,13 @@ export namespace Config {
                 .positive()
                 .max(2_147_483_647)
                 .describe(
-                  "Optional maximum provider response-body inactivity in milliseconds; resets on every body chunk, including keepalives. Disabled by default because a quiet response can still be generating private reasoning.",
+                  "Maximum provider response-body inactivity in milliseconds; resets on every body chunk, including keepalives and streamed private reasoning. Remote endpoints default to 1800000 (30 minutes); local endpoints default to disabled.",
                 ),
               z.literal(false).describe("Disable the provider inactivity watchdog."),
             ])
             .optional()
             .describe(
-              "Optional maximum provider response-body inactivity in milliseconds. Disabled by default. A configured deadline cancels even a healthy but quiet generation; set false to disable.",
+              "Maximum provider response-body inactivity in milliseconds. Remote endpoints default to 1800000 (30 minutes); local endpoints (loopback or .local base URLs and bundled local providers) default to disabled. Set false to disable.",
             ),
           connectTimeout: z
             .union([z.number().int().positive().max(2_147_483_647), z.literal(false)])
