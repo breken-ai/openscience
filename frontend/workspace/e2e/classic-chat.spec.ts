@@ -1,7 +1,9 @@
 import type { AssistantMessage, Part, ReasoningPart, TextPart, UserMessage } from "@synsci/sdk/v2"
 import type { Locator, Page } from "@playwright/test"
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 import { test, expect } from "./fixtures"
-import { openFilesSources } from "./utils"
+import { openFilesSources, promptSelector } from "./utils"
 
 test.skip(process.env.OPENSCIENCE_E2E_FAKE_MODEL !== "1", "requires the isolated deterministic model")
 
@@ -50,6 +52,246 @@ async function dragInspector(page: Page, distance: number, verify: () => Promise
   }
   await expect(page.locator("[data-pane-resize-shield]")).toHaveCount(0)
   expect(Math.abs(Number(await handle.getAttribute("aria-valuenow")) - before)).toBeGreaterThan(100)
+}
+
+for (const position of ["bottom", "history"] as const) {
+  test(`submitting from ${position} keeps long chat mounted while output receipts refresh`, async ({
+    page,
+    sdk,
+    gotoSession,
+  }) => {
+    const session = await sdk.session.create({ title: `Submit scroll ${position}` }).then((result) => result.data)
+    if (!session) throw new Error("The isolated session was not created")
+    const sessionID = session.id
+    const releaseReceipts = Promise.withResolvers<void>()
+    const releasePrompt = Promise.withResolvers<void>()
+    let delay = false
+    let closing = false
+    let receiptsPending = false
+    let promptPending = false
+    let initialReceipt: { status: number; body: unknown } | undefined
+    let receiptChecks = 0
+    try {
+      const reply = await sdk.session
+        .prompt({
+          sessionID,
+          model: { providerID: "e2e", modelID: "echo" },
+          parts: [{ type: "text", text: "Seed the isolated submit fixture." }],
+        })
+        .then((result) => result.data)
+      if (!reply?.info.id) throw new Error("The deterministic model did not return a reply")
+      const saved = await sdk.session.messages({ sessionID }).then((result) => result.data ?? [])
+      const source = saved.find((message) => message.info.role === "user")?.info
+      if (source?.role !== "user") throw new Error("The isolated user turn is missing")
+      const filesystem = await sdk.session.filesystem.list({ sessionID }).then((result) => result.data)
+      if (!filesystem?.workspace.scratchRoot) throw new Error("The isolated scratch workspace is missing")
+      const output = path.join(filesystem.workspace.scratchRoot, "scroll-evidence.txt")
+      writeFileSync(output, "Disposable completed-turn output.\n")
+      const messages: Array<{ info: UserMessage | AssistantMessage; parts: Part[] }> = []
+      for (let index = 0; index < 12; index++) {
+        // Older sortable IDs let real optimistic/SSE messages append after
+        // this presentation fixture when the actual composer submits.
+        const id = `msg_000000000${String(index * 2).padStart(3, "0")}ScrollUser`
+        const assistantID = `msg_000000000${String(index * 2 + 1).padStart(3, "0")}ScrollReply`
+        const created = source.time.created - 120_000 + index * 2_000
+        const parts: Part[] = []
+        if (index === 11) {
+          parts.push({
+            id: "prt_scroll_written",
+            messageID: assistantID,
+            sessionID,
+            type: "tool",
+            tool: "bash",
+            callID: "call_scroll_written",
+            state: {
+              status: "completed",
+              input: { command: "fixture output" },
+              title: "Saved experiment evidence",
+              output: "",
+              metadata: {
+                exit: 0,
+                outputFiles: [
+                  { path: output, name: "scroll-evidence.txt", size: 34, modified: created, change: "created" },
+                ],
+              },
+              time: { start: created + 100, end: created + 500 },
+            },
+          })
+        }
+        parts.push({
+          id: `prt_scroll_answer_${index}`,
+          messageID: assistantID,
+          sessionID,
+          type: "text",
+          text:
+            `## Historical experiment ${index}\n\n` +
+            Array.from(
+              { length: 7 },
+              () =>
+                "The measured effect remains uncertain. Preserve the controls and replicate the observation before changing the experimental plan.",
+            ).join("\n\n"),
+          time: { start: created + 500, end: created + 1_000 },
+        })
+        messages.push(
+          {
+            info: { ...source, id, time: { created } },
+            parts: [
+              {
+                id: `prt_scroll_user_${index}`,
+                messageID: id,
+                sessionID,
+                type: "text",
+                text: `Review historical experiment ${index}.`,
+              },
+            ],
+          },
+          {
+            info: {
+              ...reply.info,
+              id: assistantID,
+              parentID: id,
+              finish: "stop",
+              time: { created: created + 100, completed: created + 1_000 },
+            },
+            parts,
+          },
+        )
+      }
+      await page.route(new RegExp(`/session/${sessionID}/message(?:\\?|$)`), (route) => {
+        if (route.request().method() !== "GET") return route.continue()
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(messages) })
+      })
+      await page.route(/\/file\/resolve(?:\?|$)/, async (route) => {
+        const url = new URL(route.request().url())
+        if (url.searchParams.get("sessionID") !== sessionID || url.searchParams.get("path") !== output) {
+          return route.continue()
+        }
+        if (delay) {
+          receiptsPending = true
+          await releaseReceipts.promise
+        }
+        if (closing) return route.abort()
+        const response = await route.fetch()
+        receiptChecks++
+        initialReceipt ??= { status: response.status(), body: await response.json() }
+        await route.fulfill({ response })
+      })
+      await page.route(/\/runtime\/prompt(?:\?|$)/, async (route) => {
+        if (route.request().postDataJSON()?.sessionID === sessionID) {
+          promptPending = true
+          await releasePrompt.promise
+        }
+        if (closing) return route.abort()
+        await route.continue()
+      })
+      await gotoSession(sessionID)
+      await expect(page.getByRole("heading", { name: "Historical experiment 11", exact: true })).toHaveCount(1)
+      await expect.poll(() => initialReceipt?.status).toBe(200)
+      await test
+        .info()
+        .attach("initial-output-check.json", { body: JSON.stringify(initialReceipt), contentType: "application/json" })
+      // The status listing omits idle sessions. A real completion while this
+      // page is connected supplies the idle SSE state present in an ongoing
+      // conversation, before the next composer send changes it to busy.
+      const primed = `E2E_OK_${Date.now()}`
+      await sdk.session.prompt({
+        sessionID,
+        model: { providerID: "e2e", modelID: "echo" },
+        parts: [{ type: "text", text: `Reply with exactly: ${primed}` }],
+      })
+      await expect(
+        page.locator('[data-slot="session-turn-response-section"]').filter({ hasText: primed }),
+      ).toBeVisible()
+      await expect.poll(() => receiptChecks).toBeGreaterThan(1)
+      await page.evaluate(() => document.fonts.ready)
+      const scroller = page.locator(".session-scroller")
+      const prompt = page.locator(promptSelector)
+      await prompt.click()
+      const token = `E2E_OK_${Date.now()}`
+      await page.keyboard.type(`Reply with exactly: ${token}`)
+      await scroller.evaluate((element, location) => {
+        element.scrollTop = location === "bottom" ? element.scrollHeight : element.scrollHeight * 0.45
+        element.dispatchEvent(new Event("scroll"))
+      }, position)
+      await settleLayout(page)
+      expect(await scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(500)
+      const recording = await scroller.evaluateHandle((original) => {
+        const samples: Array<{ same: boolean; connected: boolean; top: number; remaining: number }> = []
+        let active = true
+        const frame = () => {
+          const current = document.querySelector<HTMLElement>(".session-scroller")
+          samples.push({
+            same: current === original,
+            connected: original.isConnected,
+            top: current?.scrollTop ?? -1,
+            remaining: current ? current.scrollHeight - current.clientHeight - current.scrollTop : -1,
+          })
+          if (active) requestAnimationFrame(frame)
+        }
+        frame()
+        return {
+          samples,
+          stop: () => {
+            active = false
+          },
+        }
+      })
+      try {
+        delay = true
+        await page.keyboard.press("Enter")
+        await expect.poll(() => receiptsPending).toBe(true)
+        await settleLayout(page)
+        const pending = await recording.evaluate((value) => value.samples)
+        await test
+          .info()
+          .attach(`submit-${position}-pending.json`, { body: JSON.stringify(pending), contentType: "application/json" })
+        expect(
+          pending.every((sample) => sample.same && sample.connected),
+          JSON.stringify(pending),
+        ).toBe(true)
+        expect(Math.min(...pending.map((sample) => sample.top)), JSON.stringify(pending)).toBeGreaterThan(500)
+        await expect.poll(() => promptPending).toBe(true)
+        releaseReceipts.resolve()
+        await settleLayout(page)
+        releasePrompt.resolve()
+        await expect(
+          page.locator('[data-slot="session-turn-response-section"]').filter({ hasText: token }),
+        ).toBeVisible()
+        await settleLayout(page)
+        const completed = await recording.evaluate((value) => value.samples)
+        expect(
+          completed.every((sample) => sample.same && sample.connected),
+          JSON.stringify(completed),
+        ).toBe(true)
+        expect(Math.min(...completed.map((sample) => sample.top)), JSON.stringify(completed)).toBeGreaterThan(500)
+        await expect
+          .poll(() => scroller.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop))
+          .toBeLessThanOrEqual(2)
+      } finally {
+        await recording.evaluate((value) => value.stop())
+        const evidence = test.info().outputPath(`submit-${position}-all-frames.json`)
+        writeFileSync(
+          evidence,
+          JSON.stringify({
+            receiptsPending,
+            promptPending,
+            frames: await recording.evaluate((value) => value.samples),
+          }),
+        )
+        await test.info().attach(`submit-${position}-all-frames.json`, {
+          path: evidence,
+          contentType: "application/json",
+        })
+        await recording.dispose()
+      }
+    } finally {
+      closing = true
+      releaseReceipts.resolve()
+      releasePrompt.resolve()
+      await sdk.session.abort({ sessionID }).catch(() => undefined)
+      await sdk.session.delete({ sessionID }).catch(() => undefined)
+    }
+  })
 }
 
 test("classic long-chat disclosures preserve the reader, stay per-turn, and survive reload", async ({

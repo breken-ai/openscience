@@ -10,6 +10,13 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Keep the conversation mounted while checking output files or refreshing compute
+  status, so sending a message cannot reset the chat to the top. Sending and
+  **Jump to Latest** follow the latest response; incoming activity preserves the
+  reader's position in earlier messages.
+- Resolve output receipts by their exact absolute path within the active session's
+  authorized files, including session scratch, without falling back to another
+  file with the same name.
 - Preserve complete historical tool arguments during output compaction and reject
   copied legacy argument previews before file mutations. Retain Task outcomes and
   immutable output handles during compaction; earlier progress text no longer

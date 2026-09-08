@@ -5883,7 +5883,7 @@ export class File_ extends HeyApiClient {
   /**
    * Resolve a session file reference
    *
-   * Resolve an unambiguous relative file reference across project, session, and connected roots authorized for the active session.
+   * Resolve an exact absolute file receipt or an unambiguous relative reference across project, session, and connected roots authorized for the active session. Absolute paths never fall back to a filename search.
    */
   public resolveReference<ThrowOnError extends boolean = false>(
     parameters: {

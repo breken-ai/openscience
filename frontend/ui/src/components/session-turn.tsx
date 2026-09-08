@@ -533,11 +533,13 @@ export function SessionTurn(
     ({ paths, sessionID }) =>
       data.resolveFileReceipts!(sessionID, paths).then(
         (paths) => ({ paths, error: false }),
-        () => ({ paths: [], error: true }),
+        () => ({ paths: emptyWritten, error: true }),
       ),
+    // Background receipt checks must not suspend the surrounding transcript.
+    { initialValue: { paths: emptyWritten, error: false } },
   )
   const written = createMemo(() =>
-    data.resolveFileReceipts ? candidates().filter((path) => existing()?.paths.includes(path)) : candidates(),
+    data.resolveFileReceipts ? candidates().filter((path) => existing.latest.paths.includes(path)) : candidates(),
   )
   const linkedFiles = written
   const pending = createMemo(() => pendingOperations(turnParts()))
@@ -1045,7 +1047,7 @@ export function SessionTurn(
                       </section>
                     </Show>
                     {/* Session outputs stay editable in scratch until explicitly kept as immutable Results. */}
-                    <Show when={!working() && existing()?.error}>
+                    <Show when={!working() && existing.latest.error}>
                       <div data-slot="session-turn-output-error">
                         <span>Session outputs could not be checked.</span>
                         <Button
