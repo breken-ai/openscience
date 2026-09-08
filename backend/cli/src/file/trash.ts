@@ -1,3 +1,4 @@
+import { FileIdentity } from "./identity"
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -25,8 +26,8 @@ export namespace FileTrash {
     Project.touchActivity(projectID).catch((error) => log.warn("file activity update failed", { error }))
 
   const Identity = z.object({
-    dev: z.number().int().nonnegative(),
-    ino: z.number().int().nonnegative(),
+    dev: FileIdentity.Value,
+    ino: FileIdentity.Value,
     size: z.number().int().nonnegative(),
     mode: z.number().int().nonnegative(),
     mtimeMs: z.number().nonnegative(),
@@ -155,7 +156,7 @@ export namespace FileTrash {
   function stableIdentity(record: Record, current: SafeTrashIO.Snapshot) {
     const approved = record.payloadIdentity
     if (!approved) return true
-    return approved.dev === current.dev && approved.ino === current.ino && approved.kind === current.kind
+    return FileIdentity.same(approved, current) && approved.kind === current.kind
   }
 
   async function verifyPayload(record: Record) {
@@ -391,27 +392,31 @@ export namespace FileTrash {
       }
       const data = await target(Global.Path.data)
       const trusted = await SafeTrashIO.ensureDataEntry(data, segment(input.projectID), id)
-      const store = home ? await SafeTrashIO.workspace(home, id) : undefined
-      const destination = store?.payload ?? path.join(trusted, "payload")
-      const initial = Record.parse({
-        id,
-        projectID: input.projectID,
-        sessionID: input.sessionID,
-        originalPath: canonical,
-        filename: path.basename(canonical),
-        size: snapshot.kind === "file" ? snapshot.size : 0,
-        sha256: snapshot.sha256,
-        mode: snapshot.mode,
-        kind: snapshot.kind,
-        store: home ? "workspace" : "data",
-        payloadPath: home ? destination : undefined,
-        payloadIdentity: snapshot,
-        state: "trash",
-        trashedAt: now,
-        expiresAt: now + RETENTION_MS,
-      })
+      let store: Awaited<ReturnType<typeof SafeTrashIO.workspace>> | undefined
+      let destination = path.join(trusted, "payload")
       const moved = { value: undefined as SafeTrashIO.Identity | undefined }
       try {
+        // Own the store as soon as it exists: metadata validation can throw
+        // before any bytes move and must still discard/close Windows handles.
+        store = home ? await SafeTrashIO.workspace(home, id) : undefined
+        destination = store?.payload ?? destination
+        const initial = Record.parse({
+          id,
+          projectID: input.projectID,
+          sessionID: input.sessionID,
+          originalPath: canonical,
+          filename: path.basename(canonical),
+          size: snapshot.kind === "file" ? snapshot.size : 0,
+          sha256: snapshot.sha256,
+          mode: snapshot.mode,
+          kind: snapshot.kind,
+          store: home ? "workspace" : "data",
+          payloadPath: home ? destination : undefined,
+          payloadIdentity: snapshot,
+          state: "trash",
+          trashedAt: now,
+          expiresAt: now + RETENTION_MS,
+        })
         await SafeTrashIO.writeRecord(path.join(trusted, "record.json"), encoded(initial))
         if (store) await store.write(encoded(initial))
         moved.value = await SafeTrashIO.move(canonical, destination, snapshot, {

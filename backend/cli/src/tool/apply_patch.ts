@@ -251,6 +251,7 @@ async function exchangeUpdate(item: PreparedChange, rollback = false) {
     {
       afterVerify: (left, right) => verify(left, right, before, after),
       afterMutation: (left, right) => verify(left, right, after, before),
+      beforeRollback: (left) => assertApprovedFile(left, after),
     },
   )
   item.exchanged = !rollback

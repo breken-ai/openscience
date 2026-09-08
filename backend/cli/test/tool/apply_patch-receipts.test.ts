@@ -7,8 +7,8 @@ import { ApplyPatchTool } from "../../src/tool/apply_patch"
 import { Format } from "../../src/format"
 import { Instance } from "../../src/project/instance"
 import { SafeDirectoryIO } from "../../src/file/safe-directory-io"
-import { tmpdir, trustProject } from "../fixture/fixture"
-import { processFailures } from "../fixture/process-failures"
+import { Sandbox } from "../../src/sandbox/sandbox"
+import { fullAccessExecution, tmpdir, trustProject } from "../fixture/fixture"
 
 const context = {
   sessionID: "test",
@@ -22,7 +22,7 @@ const context = {
 }
 
 test("patch results bind actual formatter output while permissions retain the proposal", async () => {
-  using processes = processFailures()
+  await using policy = Sandbox.available() ? undefined : await fullAccessExecution()
   await using fixture = await tmpdir({
     config: {
       lsp: false,
@@ -72,9 +72,6 @@ test("patch results bind actual formatter output while permissions retain the pr
       }
       await Instance.dispose()
     },
-  }).catch((error) => {
-    processes.report()
-    throw error
   })
 })
 
@@ -196,6 +193,59 @@ for (const phase of ["before", "after"] as const) {
     },
   )
 }
+
+test.skipIf(process.platform !== "darwin" && process.platform !== "linux")(
+  "failed patch rollback preserves a concurrent edit to the installed public inode",
+  async () => {
+    await using fixture = await tmpdir({ config: { lsp: false, formatter: false } })
+    const target = path.join(fixture.path, "shared.txt")
+    await fs.writeFile(target, "approved\n")
+    const original = await fs.stat(target, { bigint: true })
+    const retained: { file?: string } = {}
+    const exchange = SafeDirectoryIO.swapEntries
+    const barrier = spyOn(SafeDirectoryIO, "swapEntries").mockImplementation(
+      (left, right, expectedLeft, expectedRight, options) =>
+        exchange(left, right, expectedLeft, expectedRight, {
+          ...options,
+          afterMutation: async (a, b) => {
+            expect(await fs.readFile(a, "utf8")).toBe("proposed\n")
+            const installed = await fs.stat(a, { bigint: true })
+            await fs.writeFile(a, "concurrent writer\n")
+            expect((await fs.stat(a, { bigint: true })).ino).toBe(installed.ino)
+            retained.file = b
+            await options?.afterMutation?.(a, b)
+          },
+        }),
+    )
+    try {
+      await Instance.provide({
+        directory: fixture.path,
+        fn: async () => {
+          try {
+            const tool = await ApplyPatchTool.init()
+            await expect(
+              tool.execute(
+                { patchText: "*** Begin Patch\n*** Update File: shared.txt\n@@\n-approved\n+proposed\n*** End Patch" },
+                context,
+              ),
+            ).rejects.toThrow("could not be rolled back")
+            expect(await fs.readFile(target, "utf8")).toBe("concurrent writer\n")
+            expect(retained.file).toBeDefined()
+            expect(await fs.readFile(retained.file!, "utf8")).toBe("approved\n")
+            expect((await fs.stat(retained.file!, { bigint: true })).ino).toBe(original.ino)
+            expect((await fs.readdir(fixture.path)).filter((name) => name.startsWith(".openscience-"))).toEqual([
+              path.basename(retained.file!),
+            ])
+          } finally {
+            await Instance.dispose()
+          }
+        },
+      })
+    } finally {
+      barrier.mockRestore()
+    }
+  },
+)
 
 test.skipIf(process.platform !== "win32")(
   "same-path Delete+Add fails closed where atomic exchange is unavailable",

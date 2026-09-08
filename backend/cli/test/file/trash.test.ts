@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { FileIdentity } from "../../src/file/identity"
 import { SafeTrashIO } from "../../src/file/safe-trash-io"
 import { FileTrash } from "../../src/file/trash"
 import { WindowsSafeIO } from "../../src/file/windows-safe-io"
@@ -13,6 +14,30 @@ import { Storage } from "../../src/storage/storage"
 import { executionSession, tmpdir } from "../fixture/fixture"
 
 describe("recoverable source file trash", () => {
+  test("metadata validation failure discards the store and releases native directory handles", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await executionSession()
+        const target = path.join(tmp.path, "retained.txt")
+        await Bun.write(target, "retained\n")
+        await expect(
+          FileTrash.trash({ projectID: Instance.project.id, sessionID: session.id, path: target, now: 0 }),
+        ).rejects.toThrow()
+        expect(await Bun.file(target).text()).toBe("retained\n")
+        expect(await FileTrash.list(Instance.project.id)).toEqual([])
+        const trash = path.join(tmp.path, FileTrash.FOLDER)
+        expect(await fs.readdir(trash)).toEqual([".gitignore"])
+        // Windows refuses this rename if the aborted store retains its parent
+        // handle without FILE_SHARE_DELETE. This is also a native cleanup gate.
+        const renamed = path.join(tmp.path, "closed-trash")
+        await fs.rename(trash, renamed)
+        await fs.rm(renamed, { recursive: true })
+      },
+    })
+  })
+
   test("uses the 64-bit directory ABI for Intel macOS trash traversal", () => {
     expect(SafeTrashIO.directorySymbolsForTests("darwin", "x64")).toEqual({
       fdopendir: "fdopendir$INODE64",
@@ -80,7 +105,8 @@ describe("recoverable source file trash", () => {
         const target = path.join(tmp.path, "results", "finding.txt")
         await fs.mkdir(path.dirname(target), { recursive: true })
         await fs.writeFile(target, "approved finding\n", { mode: 0o640 })
-        const mode = (await fs.stat(target)).mode & 0o777
+        const before = await fs.lstat(target, { bigint: true })
+        const mode = Number(before.mode) & 0o777
 
         const trashed = await FileTrash.trash({
           projectID: Instance.project.id,
@@ -96,6 +122,13 @@ describe("recoverable source file trash", () => {
           size: 17,
           mode,
         })
+        expect(trashed.payloadIdentity?.dev).toBe(FileIdentity.encode(before.dev))
+        expect(trashed.payloadIdentity?.ino).toBe(FileIdentity.encode(before.ino))
+        // This JSON boundary runs on native Windows too, where file IDs often
+        // exceed MAX_SAFE_INTEGER. Reloaded approvals must retain every bit.
+        expect(FileTrash.Record.parse(JSON.parse(JSON.stringify(trashed))).payloadIdentity).toEqual(
+          trashed.payloadIdentity,
+        )
         expect(trashed.expiresAt - trashed.trashedAt).toBe(FileTrash.RETENTION_MS)
         await expect(fs.readFile(target)).rejects.toThrow()
 

@@ -243,10 +243,6 @@ describe("tool.apply_patch freeform", () => {
           expect(await FileTrash.list(Instance.project.id)).toMatchObject([
             { id: result.metadata.trash[0]?.id, originalPath: target, state: "trash" },
           ])
-        } catch (error) {
-          // Bun can suppress the original Windows failure if fixture removal also fails.
-          console.error("deletes one file into recoverable trash", error)
-          throw error
         } finally {
           await Instance.dispose()
         }
@@ -366,10 +362,6 @@ describe("tool.apply_patch freeform", () => {
           const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
           await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
           expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
-        } catch (error) {
-          // Bun can suppress the original Windows failure if fixture removal also fails.
-          console.error("moves file to a new directory", error)
-          throw error
         } finally {
           await Instance.dispose()
         }
