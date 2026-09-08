@@ -14,6 +14,7 @@ import { trimDiff } from "./edit"
 import { assertExternalDirectory, sessionToolDirectory } from "./external-directory"
 import { SafeFileIO } from "@/file/safe-io"
 import { AuthoritySignal } from "@/project/authority-signal"
+import { PayloadIntegrity } from "./payload-integrity"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
@@ -34,6 +35,7 @@ export const WriteTool = Tool.define("write", {
     const exists = !!approved
     const contentOld = approved?.bytes.toString("utf8") ?? ""
     if (exists) await FileTime.assert(ctx.sessionID, filepath)
+    PayloadIntegrity.assert({ content: params.content, before: contentOld, messages: ctx.messages })
 
     const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
     await ctx.ask({

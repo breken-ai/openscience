@@ -906,6 +906,16 @@ describe("ComputeJobs local lifecycle", () => {
       expect(finished.sandbox).toMatchObject({ requested: true, enforced: true, network: "deny" })
       expect(restarted?.capability).toEqual(capability)
       expect(restarted?.capability_execution).toEqual(capabilityExecution)
+      // Capability identity comes from its exact attested binding. No extra
+      // version command runs outside the workload; absent measurement must
+      // not fall back to an unrelated host Python version.
+      expect(restarted?.reproducibility?.python).toBeUndefined()
+      expect(restarted?.reproducibility?.execution_environment).toMatchObject({
+        target: "local",
+        profile: "scipy:smoke",
+        python: { role: "capability", executable: capabilityExecution.runtime_binary },
+      })
+      expect(restarted?.reproducibility?.execution_environment?.python?.version).toBeUndefined()
       expect(restarted?.provenance?.scientific_capability).toEqual({
         ...capability,
         execution_network: "none",
@@ -1587,7 +1597,16 @@ describe("ComputeJobs Modal governance", () => {
     expect((await ComputeJobs.get(job.id, { root, workspace: tmp.path }))?.status).toBe("running")
 
     gate.resolve()
-    expect((await ComputeJobs.wait(job.id, { root, workspace: tmp.path, timeout: 5_000 })).status).toBe("succeeded")
+    const finished = await ComputeJobs.wait(job.id, { root, workspace: tmp.path, timeout: 5_000 })
+    expect(finished.status).toBe("succeeded")
+    expect(finished.reproducibility).toMatchObject({
+      capture_scope: "submitter",
+      execution_environment: { target: "modal" },
+    })
+    expect(finished.reproducibility?.python).toBeUndefined()
+    expect(finished.reproducibility?.execution_environment?.python).toBeUndefined()
+    expect(finished.reproducibility?.execution_environment?.cwd).toBeUndefined()
+    expect(finished.provenance?.environment.host).toEqual({ status: "unavailable", reason: "remote_unverified" })
   }, 15_000)
 
   test("records a Modal sandbox timeout as a terminal timed-out job", async () => {

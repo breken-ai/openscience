@@ -73,6 +73,23 @@ OpenScience can track work, ask questions, delegate a bounded task, load a skill
 | Load a procedure | Select a [skill](/openscience/skills) and describe its task. |
 | Generate or edit an image | Use the [image tool](/openscience/image-generation) with an output path. |
 | Retain a file | Ask to save the verified output as a [Result](/openscience/results). |
+
+For programmatic workflows, `artifact` supports `save_file` with a workspace
+`path`, and `read_file` with an exact `artifact_id` and `version_id`. Reading a
+version verifies its stored hash and stays within the current project. Text is
+returned in bounded windows with a byte offset for continuation; binary Results
+and files above the 8 MiB inline limit remain available through Files and the
+artifact API. Large-file responses explicitly contain stored metadata only.
+Saving a file captures its
+bytes; it does not by itself verify the file's scientific claims.
+
+Historical tool inputs retain their complete arguments when older outputs are
+compacted. A copied legacy `…[+N chars]` argument preview is rejected before a file
+mutation when its source can be identified. Literal examples already in a file
+remain editable. Recover the original source before using a shortened preview as
+input. When the model or permissions change the advertised tool set, the next
+model request receives a compact added/removed notice; permissions still apply at
+execution time.
 | Keep sources and evidence | Ask for a source list and claim-level evidence in the research deliverables. |
 
 Optional language-service or batch operations can appear in configurations that enable them. External MCP servers, plugins, and project tools add their own operations; inspect their documentation and availability before relying on them.

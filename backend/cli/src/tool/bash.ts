@@ -452,19 +452,7 @@ export const BashTool = Tool.define("bash", async () => {
               // Re-sanitize at the final process boundary too: runtime/cache
               // overlays must never restore a managed token or re-pair a
               // user's key with the Ace managed proxy after subprocessEnv ran.
-              env: {
-                ...OpenScience.filterEnvForSubprocess({ ...env, ...(runtime.env ?? {}), ...cache }),
-                // This path is constructed by the runtime resolver, never an
-                // ambient PYTHONPATH. The same directory is in readable above.
-                PYTHONPATH: runtime.env.PYTHONPATH,
-                // The final overlay pass re-sanitizes runtime/cache values and
-                // therefore drops control variables. Restore only the fixed
-                // Git policy from subprocessEnv so Git never falls back to a
-                // user-owned ~/.gitconfig or credential prompt.
-                GIT_CONFIG_NOSYSTEM: env.GIT_CONFIG_NOSYSTEM,
-                GIT_CONFIG_GLOBAL: env.GIT_CONFIG_GLOBAL,
-                GIT_TERMINAL_PROMPT: env.GIT_TERMINAL_PROMPT,
-              },
+              env: KernelEnvironmentMutation.subprocessEnv(runtime, { ...env, ...cache }),
               stdio: ["ignore", "pipe", "pipe"],
               detached: process.platform !== "win32",
             })
@@ -615,6 +603,7 @@ export const BashTool = Tool.define("bash", async () => {
           output: clipped,
           description: params.description,
           provenanceID: node?.id,
+          execution_environment: KernelEnvironmentMutation.subprocessIdentity(runtime, cwd),
           ...files,
         },
       })
@@ -625,6 +614,7 @@ export const BashTool = Tool.define("bash", async () => {
           exit: proc.exitCode,
           description: params.description,
           provenanceID: node?.id,
+          execution_environment: KernelEnvironmentMutation.subprocessIdentity(runtime, cwd),
           ...files,
         },
         output: redactedOutput,

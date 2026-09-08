@@ -23,6 +23,8 @@ import { ToolSelection } from "@/session/tool-selection"
 import { availableParallelism } from "node:os"
 import { SubtaskAttachments } from "@/session/subtask-attachments"
 import { SessionWorkspace } from "@/session/workspace"
+import { TaskEvidence } from "./task-evidence"
+import { PayloadIntegrity } from "./payload-integrity"
 
 export const DELEGATION_PROFILES = ["explore", "execute"] as const
 export const DELEGATION_SPECIALISTS = ["biology", "physics", "ml"] as const
@@ -139,13 +141,13 @@ const parameters = z.object({
 /** Canonicalize model-supplied continuation placeholders before a Task attempt
  * is fingerprinted. Execution and restart recovery must use the same input or
  * an interrupted, already-completed child can permanently poison its parent. */
-export function normalizeTaskAttemptInput(input: unknown, parentSessionID: string) {
+export function normalizeTaskAttemptInput(
+  input: unknown,
+  parentSessionID: string,
+  messages: MessageV2.WithParts[] = [],
+) {
   const parsed = parameters.parse(input)
-  if (MessageV2.hasArgTruncationMarker(parsed.prompt)) {
-    throw new Error(
-      "Task assignment contains OpenScience's internal argument-compaction marker (…[+N chars]). No child was started. Reconstruct and submit the complete assignment instead of executing truncated text.",
-    )
-  }
+  PayloadIntegrity.assert({ content: parsed.prompt, before: "", messages })
   return {
     ...parsed,
     session_id: taskContinuationID(parsed.session_id, parentSessionID),
@@ -300,10 +302,8 @@ export function summarizeTurn(messages: MessageV2.WithParts[], previous: Set<str
   return { summary, usage }
 }
 
-/** The child's handoff is the text of its final assistant message that said
- * anything, after that message's last tool call. Earlier narration and tool
- * chatter stay in the child session, which the parent can open by the id in
- * the result metadata. */
+/** Only text after the final assistant message's last tool is a handoff.
+ * Earlier narration cannot establish completion of later work. */
 export function taskText(messages: MessageV2.WithParts[], previous: Set<string>) {
   const text = (parts: readonly MessageV2.Part[]) =>
     parts
@@ -316,10 +316,10 @@ export function taskText(messages: MessageV2.WithParts[], previous: Set<string>)
   const final = messages
     .filter((message) => !previous.has(message.info.id) && message.info.role === "assistant")
     .toSorted((a, b) => a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id))
-    .findLast((message) => text(message.parts).length > 0)
+    .at(-1)
   if (!final) return ""
   const lastTool = final.parts.findLastIndex((part) => part.type === "tool")
-  return text(final.parts.slice(lastTool + 1)) || text(final.parts)
+  return text(final.parts.slice(lastTool + 1))
 }
 
 export type TaskOutcome = {
@@ -462,6 +462,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         const current = await TaskAttempt.read(identity)
         if (!current) throw new Error(`Durable Task attempt ${ctx.callID} disappeared after reservation`)
         if (current.status === "completed" && current.result) return current.result
+        PayloadIntegrity.assert({ content: attemptInput.prompt, before: "", messages: ctx.messages })
 
         const existing =
           continuation ??
@@ -619,6 +620,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                   "Do not return a diary of searches, reads, or commands. Your final response is a decision-ready handoff to the lead, not a second user-facing report.",
                   "Use only the Markdown sections that carry substance: Outcome; Findings; Evidence; Changes / outputs; Limitations; Next action.",
                   "Preserve exact paths, identifiers, numeric results, commands, and error strings when they matter. Distinguish observed evidence from inference. If blocked or partial, say exactly what remains.",
+                  'Save important scratch outputs with artifact(action="save_file", path=...) before returning. The lead receives immutable artifact/version handles and can read them without access to your private scratch. A saved file proves an output exists, not that its claims or tests passed.',
                   "Do not wrap the response in XML or JSON and do not restate these instructions.",
                   settings.autonomy === "interactive"
                     ? "If the assignment contains a genuinely consequential ambiguity, return one precise question to the lead instead of guessing."
@@ -677,6 +679,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         const complete = await Session.messages({ sessionID: session.id })
         const { summary, usage } = summarizeTurn(complete, previous)
         const text = taskText(complete, previous)
+        const evidence = await TaskEvidence.collect({
+          projectID: Instance.project.id,
+          sessionID: session.id,
+          messages: complete,
+          previous,
+        })
         const child = execution.result?.info.role === "assistant" ? execution.result.info : terminal?.info
         const failedToolCalls = summary.filter((part) => part.state.status === "error").length
         const partialToolCalls = summary.filter((part) => part.state.status === "partial").length
@@ -699,7 +707,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         // metadata) so the lead can continue this exact worker via `session_id`.
         // Compaction preserves it: MessageV2.toolSummary re-emits it from metadata.
         const output = [
-          `Task session ${session.id}: reuse this sessionId to continue the same worker.`,
+          `Task session ${session.id}: ${taskOutcome.outcome} (${taskOutcome.stopReason}). Reuse this sessionId to continue the same worker.`,
           ...(taskOutcome.stopReason === "max_steps"
             ? ["[Child reached its bounded step limit; partial result follows.]"]
             : taskOutcome.stopReason === "tool_failures"
@@ -716,6 +724,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                         ]
                       : []),
           handoff.text,
+          TaskEvidence.describe(evidence),
         ]
           .filter(Boolean)
           .join("\n")
@@ -743,6 +752,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
             handoff: handoff.text,
             handoffTruncated: handoff.truncated,
             resultChars: raw.length,
+            evidence,
           },
           output,
         })

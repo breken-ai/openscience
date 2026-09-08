@@ -7208,6 +7208,57 @@
                           "python": {
                             "type": "string"
                           },
+                          "capture_scope": {
+                            "type": "string",
+                            "enum": [
+                              "execution_host",
+                              "submitter"
+                            ]
+                          },
+                          "execution_environment": {
+                            "type": "object",
+                            "properties": {
+                              "target": {
+                                "type": "string",
+                                "enum": [
+                                  "local",
+                                  "ssh",
+                                  "modal"
+                                ]
+                              },
+                              "cwd": {
+                                "type": "string"
+                              },
+                              "profile": {
+                                "type": "string"
+                              },
+                              "python": {
+                                "description": "Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.",
+                                "type": "object",
+                                "properties": {
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "selected_default",
+                                      "capability"
+                                    ]
+                                  },
+                                  "executable": {
+                                    "type": "string"
+                                  },
+                                  "version": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "role"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "target"
+                            ]
+                          },
                           "git": {
                             "type": "object",
                             "properties": {
@@ -9796,6 +9847,57 @@
                         },
                         "python": {
                           "type": "string"
+                        },
+                        "capture_scope": {
+                          "type": "string",
+                          "enum": [
+                            "execution_host",
+                            "submitter"
+                          ]
+                        },
+                        "execution_environment": {
+                          "type": "object",
+                          "properties": {
+                            "target": {
+                              "type": "string",
+                              "enum": [
+                                "local",
+                                "ssh",
+                                "modal"
+                              ]
+                            },
+                            "cwd": {
+                              "type": "string"
+                            },
+                            "profile": {
+                              "type": "string"
+                            },
+                            "python": {
+                              "description": "Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.",
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "selected_default",
+                                    "capability"
+                                  ]
+                                },
+                                "executable": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "role"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "target"
+                          ]
                         },
                         "git": {
                           "type": "object",
@@ -13538,6 +13640,57 @@
                         "python": {
                           "type": "string"
                         },
+                        "capture_scope": {
+                          "type": "string",
+                          "enum": [
+                            "execution_host",
+                            "submitter"
+                          ]
+                        },
+                        "execution_environment": {
+                          "type": "object",
+                          "properties": {
+                            "target": {
+                              "type": "string",
+                              "enum": [
+                                "local",
+                                "ssh",
+                                "modal"
+                              ]
+                            },
+                            "cwd": {
+                              "type": "string"
+                            },
+                            "profile": {
+                              "type": "string"
+                            },
+                            "python": {
+                              "description": "Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.",
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "selected_default",
+                                    "capability"
+                                  ]
+                                },
+                                "executable": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "role"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "target"
+                          ]
+                        },
                         "git": {
                           "type": "object",
                           "properties": {
@@ -16156,6 +16309,57 @@
                         "python": {
                           "type": "string"
                         },
+                        "capture_scope": {
+                          "type": "string",
+                          "enum": [
+                            "execution_host",
+                            "submitter"
+                          ]
+                        },
+                        "execution_environment": {
+                          "type": "object",
+                          "properties": {
+                            "target": {
+                              "type": "string",
+                              "enum": [
+                                "local",
+                                "ssh",
+                                "modal"
+                              ]
+                            },
+                            "cwd": {
+                              "type": "string"
+                            },
+                            "profile": {
+                              "type": "string"
+                            },
+                            "python": {
+                              "description": "Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.",
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "selected_default",
+                                    "capability"
+                                  ]
+                                },
+                                "executable": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "role"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "target"
+                          ]
+                        },
                         "git": {
                           "type": "object",
                           "properties": {
@@ -18773,6 +18977,57 @@
                         },
                         "python": {
                           "type": "string"
+                        },
+                        "capture_scope": {
+                          "type": "string",
+                          "enum": [
+                            "execution_host",
+                            "submitter"
+                          ]
+                        },
+                        "execution_environment": {
+                          "type": "object",
+                          "properties": {
+                            "target": {
+                              "type": "string",
+                              "enum": [
+                                "local",
+                                "ssh",
+                                "modal"
+                              ]
+                            },
+                            "cwd": {
+                              "type": "string"
+                            },
+                            "profile": {
+                              "type": "string"
+                            },
+                            "python": {
+                              "description": "Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.",
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "selected_default",
+                                    "capability"
+                                  ]
+                                },
+                                "executable": {
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "role"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "target"
+                          ]
                         },
                         "git": {
                           "type": "object",

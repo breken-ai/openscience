@@ -7,6 +7,7 @@ import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { TaskAttempt, TaskCapacity } from "../../src/tool/task-attempt"
+import { normalizeTaskAttemptInput } from "../../src/tool/task"
 import { LockCoordination } from "../../src/util/lock-coordination"
 import { tmpdir, trustProject } from "../fixture/fixture"
 import { spawn } from "../fixture/spawn"
@@ -122,7 +123,7 @@ async function result(proc: ReturnType<typeof worker>) {
   return JSON.parse(line) as Result
 }
 
-async function seed(directory: string, options?: { eagerParentPlaceholder?: boolean }): Promise<Seed> {
+async function seed(directory: string, options?: { eagerParentPlaceholder?: boolean; prompt?: string }): Promise<Seed> {
   return Instance.provide({
     directory,
     init: async () => {
@@ -167,7 +168,7 @@ async function seed(directory: string, options?: { eagerParentPlaceholder?: bool
           status: "running",
           input: {
             description: "Durable restart fixture",
-            prompt: "Return the deterministic child result.",
+            prompt: options?.prompt ?? "Return the deterministic child result.",
             subagent_type: "execute",
             ...(options?.eagerParentPlaceholder ? { session_id: parent.id } : {}),
           },
@@ -504,7 +505,7 @@ describe("durable Task attempts across Bun processes", () => {
     }
   }, 30_000)
 
-  test("restores a durable child result into an ordinary running Task call after restart", async () => {
+  test("restores a durable Task result despite later sibling evidence matching its literal marker", async () => {
     const local = provider()
     const processes = new Set<ReturnType<typeof parent>>()
     try {
@@ -512,7 +513,9 @@ describe("durable Task attempts across Bun processes", () => {
         git: true,
         config: stressProviderConfig(`http://127.0.0.1:${local.server.port}/v1`),
       })
-      const input = await seed(tmp.path)
+      const original = "Document the retained literal example. ".repeat(30)
+      const prompt = original.slice(0, 200) + `…[+${original.length - 200} chars]`
+      const input = await seed(tmp.path, { prompt })
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
@@ -525,7 +528,7 @@ describe("durable Task attempts across Bun processes", () => {
           }
           const params = {
             description: "Durable restart fixture",
-            prompt: "Return the deterministic child result.",
+            prompt,
             subagent_type: "execute" as const,
           }
           await TaskAttempt.reserve({ ...identity, fingerprint: TaskAttempt.fingerprint(params) })
@@ -537,6 +540,30 @@ describe("durable Task attempts across Bun processes", () => {
               output: "DURABLE_ORDINARY_CHILD_RESULT",
             },
           })
+          // This sibling was not in the Task's execution-visible history.
+          // A new admission now rejects the preview; recovery must still use
+          // the already committed result after checking its exact fingerprint.
+          await Session.updatePart({
+            id: `prt_${crypto.randomUUID().replaceAll("-", "").slice(0, 26)}`,
+            sessionID: input.parentID,
+            messageID: input.messageID,
+            callID: "call_later_sibling",
+            type: "tool",
+            tool: "write",
+            state: {
+              status: "completed",
+              input: { content: original },
+              title: "Later sibling",
+              output: "Saved full content",
+              metadata: {},
+              time: { start: Date.now(), end: Date.now() },
+            },
+          })
+          await Session.flushPendingParts(input.parentID)
+          const later = await Session.messages({ sessionID: input.parentID })
+          expect(() => normalizeTaskAttemptInput(params, input.parentID, later)).toThrow(
+            "shortened historical argument",
+          )
         },
       })
       const ready = path.join(tmp.path, "ordinary-recovery.ready")

@@ -10,6 +10,20 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Preserve complete historical tool arguments during output compaction and reject
+  copied legacy argument previews before file mutations. Retain Task outcomes and
+  immutable output handles during compaction; earlier progress text no longer
+  counts as a worker's final handoff.
+- Let leads read saved worker Results by exact artifact and version IDs without
+  opening private scratch directories. Include observed command receipt references
+  in handoffs, without treating shell success as proof of passing tests.
+- Record the selected Python executable separately from measured version evidence,
+  use that same interpreter for local compute receipts, and label remote submitter
+  metadata honestly. Explain changes to advertised tools at the provider boundary.
+- Discover Git Bash across Windows installation layouts and require a POSIX shell
+  for local compute, so a fallback command prompt cannot report success without
+  executing the job script. Capture mixed shell and native-program output through
+  one append writer, and flush it before reporting completion.
 - Keep delegated-agent progress connected throughout execution and propagate parent
   cancellation through child preparation, resumed work and active model requests.
   Normalize empty continuation fields and stop repeated same-cause failures even

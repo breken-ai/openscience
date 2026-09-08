@@ -315,13 +315,14 @@ test("Task handoffs return the child's final answer, written after its last tool
   )
 })
 
-test("Task handoffs fall back to the last message that said anything", () => {
+test("Task handoffs never promote pre-tool narration or an earlier message to final findings", () => {
   const trailing = handoffMessage("msg_tool_only", 30, [{ id: "prt_last_tool", tool: true }])
   const spoke = handoffMessage("msg_spoke", 20, [
     { id: "prt_note", text: "partial note before a final check" },
     { id: "prt_check", tool: true },
   ])
-  expect(taskText([trailing, spoke], new Set())).toBe("partial note before a final check")
+  expect(taskText([trailing, spoke], new Set())).toBe("")
+  expect(taskText([spoke], new Set())).toBe("")
   expect(taskText([trailing], new Set())).toBe("")
   expect(taskText([spoke, trailing], new Set(["msg_spoke"]))).toBe("")
 })
@@ -391,8 +392,12 @@ test("Task outcomes distinguish bounded partial work from completion and failure
   })
 })
 
-test("Task preserves byte-exact long assignments and rejects internal compaction markers", () => {
+test("Task preserves exact assignments, rejects known shortened history, and allows literal marker documentation", () => {
   const prompt = `Collect these exact identifiers and destinations without guessing:\n${"🧬ßλ".repeat(1_000)}`
+  const source = handoffMessage("msg_full_assignment", 1, [{ id: "prt_source", tool: true }])
+  const part = source.parts[0]
+  if (part.type !== "tool") throw new Error("Expected historical tool input")
+  part.state.input = { content: prompt }
   const normalized = normalizeTaskAttemptInput(
     { description: "Collect exact papers", prompt, subagent_type: "explore" },
     "ses_parent",
@@ -402,12 +407,21 @@ test("Task preserves byte-exact long assignments and rejects internal compaction
     normalizeTaskAttemptInput(
       {
         description: "Collect exact papers",
-        prompt: `${prompt.slice(0, 200)}…[+1712 chars]`,
+        prompt: `${prompt.slice(0, 200)}…[+${prompt.length - 200} chars]`,
         subagent_type: "explore",
       },
       "ses_parent",
+      [source],
     ),
-  ).toThrow("No child was started")
+  ).toThrow("No action was taken")
+  const literal = "Document the literal marker `…[+1712 chars]` and explain why it is not file content."
+  expect(
+    normalizeTaskAttemptInput(
+      { description: "Explain marker syntax", prompt: literal, subagent_type: "explore" },
+      "ses_parent",
+      [source],
+    ).prompt,
+  ).toBe(literal)
 })
 
 test("Task classifies every placeholder, empty and self-referential session id as a new child", () => {

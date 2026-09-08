@@ -144,6 +144,7 @@ jobs:
               bun test --timeout 15000
               test/global/data-dir.test.ts
               test/process/darwin-responsibility.test.ts
+              test/compute/local-python-runtime.test.ts
               test/credentials/process-ledger.test.ts
               test/project/authority-process-ledger.test.ts
               test/file/safe-io.test.ts
@@ -158,6 +159,7 @@ jobs:
               bun test --timeout 15000
               test/global/data-dir.test.ts
               test/process/windows-job.test.ts
+              test/compute/local-python-runtime.test.ts
               test/global/data-root.test.ts
               test/openscience-env.test.ts
               test/file/safe-io.test.ts

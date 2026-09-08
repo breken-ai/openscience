@@ -8,6 +8,45 @@ import type { PermissionNext } from "../../../src/permission/next"
 import { executionSession, tmpdir } from "../../fixture/fixture"
 import fs from "node:fs/promises"
 
+test("subprocess identity preserves the configured executable on every platform and leaves unmeasured values absent", () => {
+  for (const binary of ["/project/.venv/bin/python", "C:\\project\\.venv\\Scripts\\python.exe"]) {
+    expect(KernelEnvironmentMutation.subprocessIdentity({ binary, environmentName: "python" }, "workspace")).toEqual({
+      target: "local",
+      cwd: "workspace",
+      profile: "python",
+      python: { role: "selected_default", executable: binary },
+    })
+  }
+  expect(KernelEnvironmentMutation.subprocessIdentity({}, "workspace").python).toEqual({ role: "selected_default" })
+})
+
+test("subprocess overlay retains only the resolver-owned import path and sanitized Git policy", () => {
+  const env = KernelEnvironmentMutation.subprocessEnv(
+    {
+      binary: "/project/.venv/bin/python",
+      env: {
+        PYTHONPATH: "/derived/site-packages",
+        MODAL_TOKEN_ID: "ak-denied-runtime-overlay",
+        NODE_OPTIONS: "--require injected",
+      },
+    },
+    {
+      PYTHONPATH: "/unapproved",
+      PYTHONHOME: "/unapproved",
+      MODAL_TOKEN_SECRET: "as-denied-ambient",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
+    },
+  )
+  expect(env).toEqual({
+    PYTHONPATH: "/derived/site-packages",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_TERMINAL_PROMPT: "0",
+  })
+})
+
 test("recognizes Python and R package/environment mutations as exact immutable plans", () => {
   const python = KernelEnvironmentMutation.detect({
     language: "python",

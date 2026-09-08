@@ -578,6 +578,8 @@ export namespace SessionPrompt {
         }
         const attempt = await TaskAttempt.read(identity)
         if (attempt?.status !== "completed" || !attempt.result) return false
+        // This restores committed work, not a new admission. Later sibling
+        // evidence must not invalidate the original fingerprinted assignment.
         const attemptInput = normalizeTaskAttemptInput(part.state.input, session.id)
         const source = TaskAttempt.wrapperSource(part)
         const subtask = source

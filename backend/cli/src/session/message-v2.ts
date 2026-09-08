@@ -17,6 +17,7 @@ import { Lock } from "@/util/lock"
 import { Token } from "@/util/token"
 import { Inference } from "@/provider/inference"
 import { CredentialRevocation } from "@/credentials/revocation"
+import { PayloadIntegrity } from "@/tool/payload-integrity"
 
 export namespace MessageV2 {
   export const ResearchEffort = z.enum(["normal", "ultra"]).meta({
@@ -857,9 +858,8 @@ export namespace MessageV2 {
                 type: ("tool-" + part.tool) as `tool-${string}`,
                 state: "output-available",
                 toolCallId: part.callID,
-                // A superseded call's output is stubbed to a back-ref, so its (possibly huge)
-                // input args are dead weight too. Task assignments are the exception: later
-                // delegation must never learn an executable prompt from truncated text.
+                // Reducing a result must not turn its authoritative input into
+                // a shortened payload that a later call could execute.
                 input: compactToolInput(part.tool, part.state.input, !!part.state.time.compacted || isDuplicate),
                 output,
                 ...(differentModel
@@ -1077,38 +1077,39 @@ export namespace MessageV2 {
     return superseded
   }
 
-  // Per-string cap for the args of a reduced (pruned) tool call. Once a call is
-  // compacted its result is gone, so an oversized payload arg (a 50KB `write` content, a
-  // long `edit` oldString) is dead weight — truncate it while keeping the JSON valid and
-  // the small identifying args (paths, flags) intact so the call still reads correctly.
-  export const ARG_TRUNCATE_CHARS = 200
   export const TASK_HANDOFF_CHARS = 8_000
-  export const ARG_TRUNCATION_MARKER = /…\[\+\d+ chars\]/u
+  export const ARG_TRUNCATION_MARKER = PayloadIntegrity.MARKER
+  export const hasArgTruncationMarker = PayloadIntegrity.hasMarker
 
-  export function hasArgTruncationMarker(value: string) {
-    return ARG_TRUNCATION_MARKER.test(value)
+  /** Tool inputs remain byte-exact even when results are reduced. Lossy
+   * summaries belong in the result, never in executable argument fields. */
+  export function compactToolInput(_tool: string, input: Record<string, unknown>, _reduced: boolean) {
+    return input
   }
 
-  export function truncateArgs(input: Record<string, unknown>, cap = ARG_TRUNCATE_CHARS): Record<string, unknown> {
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(input ?? {}))
-      out[k] = typeof v === "string" && v.length > cap ? v.slice(0, cap) + `…[+${v.length - cap} chars]` : v
-    return out
+  const TaskArtifactHandle = z.object({ artifactID: z.string().min(1), versionID: z.string().min(1) })
+  const TaskOutcome = z.enum(["completed", "partial", "error"])
+
+  function taskReceipt(metadata: Record<string, unknown>) {
+    const outcome = TaskOutcome.safeParse(metadata.outcome).data
+    const reason = z.string().max(120).safeParse(metadata.stopReason).data
+    const evidence = z.object({ artifacts: z.array(z.unknown()) }).safeParse(metadata.evidence).data
+    const handles = (evidence?.artifacts ?? []).slice(0, 8).flatMap((value) => {
+      const handle = TaskArtifactHandle.safeParse(value).data
+      return handle
+        ? [`- artifact_id=${JSON.stringify(handle.artifactID)}, version_id=${JSON.stringify(handle.versionID)}`]
+        : []
+    })
+    return [
+      ...(outcome ? [`Task outcome: ${outcome}${reason ? ` (${JSON.stringify(reason)})` : ""}.`] : []),
+      ...(handles.length ? ["Saved outputs: use artifact read_file with these exact IDs.", ...handles] : []),
+      ...((evidence?.artifacts.length ?? 0) > 8 ? ["More saved outputs are listed in the full child trace."] : []),
+    ].join("\n")
   }
 
-  /** A Task prompt is executable input, not diagnostic history. Keep it
-   * byte-exact even after its output is reduced so a later model can never
-   * copy an internal truncation marker into a new child assignment. */
-  export function compactToolInput(tool: string, input: Record<string, unknown>, reduced: boolean) {
-    if (!reduced || tool === "task") return input
-    return truncateArgs(input)
-  }
-
-  // A 1-line, tool-aware stand-in for a reduced (pruned) tool output. Replaces the blunt
-  // "[Old tool result content cleared]" so the model retains the gist — which tool ran,
-  // against what, and how big the result was — and knows it can re-run to recover the
-  // body. Keeps the token cost to a single line. Used by both toModelMessages (render)
-  // and composition (accounting) so the two never disagree.
+  // Keep reduced results recognizable and recoverable. Delegated outcomes and
+  // immutable output handles survive even when the prose handoff is shortened.
+  // Rendering and context accounting share this representation.
   export function toolSummary(tool: string, state: ToolStateCompleted): string {
     const descriptor = iife(() => {
       const title = state.title?.trim()
@@ -1125,16 +1126,18 @@ export namespace MessageV2 {
     // that thread. task.ts also writes it as the first line of the live output.
     const sessionID = tool === "task" && typeof state.metadata.sessionId === "string" ? state.metadata.sessionId : ""
     const idLine = sessionID ? `Task session ${sessionID}: reuse this sessionId to continue the same worker.\n` : ""
+    const receipt = tool === "task" ? taskReceipt(state.metadata) : ""
+    const prefix = idLine + (receipt ? `${receipt}\n` : "")
     const handoff = tool === "task" && typeof state.metadata.handoff === "string" ? state.metadata.handoff.trim() : ""
     if (handoff) {
       const retained =
         handoff.length <= TASK_HANDOFF_CHARS
           ? handoff
           : handoff.slice(0, TASK_HANDOFF_CHARS).trimEnd() + "\n[… child handoff truncated …]"
-      return `${idLine}[task]${descriptor ? " " + descriptor : ""} → retained child handoff\n${retained}`
+      return `${prefix}[task]${descriptor ? " " + descriptor : ""} → retained child handoff\n${retained}`
     }
     const lines = state.output ? state.output.split("\n").length : 0
-    return `${idLine}[${tool}]${descriptor ? " " + descriptor : ""} → cleared (${lines} line${lines === 1 ? "" : "s"})`
+    return `${prefix}[${tool}]${descriptor ? " " + descriptor : ""} → cleared (${lines} line${lines === 1 ? "" : "s"})`
   }
 
   export type Composition = {
@@ -1208,8 +1211,7 @@ export namespace MessageV2 {
         if (part.type === "tool") {
           const bucket = SKILL_TOOLS.has(part.tool) ? "skills" : "tool"
           const compacted = part.state.status === "completed" && !!part.state.time.compacted
-          // Mirror toModelMessages: a compacted OR superseded call's args are reduced in
-          // the render except for byte-exact Task assignments.
+          // Mirror toModelMessages: inputs remain exact while results may be reduced.
           const reducedArgs = compacted || superseded.has(part.id)
           out[bucket] += Token.estimate(
             JSON.stringify(compactToolInput(part.tool, part.state.input, reducedArgs) ?? {}),

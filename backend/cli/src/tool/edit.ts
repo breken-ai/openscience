@@ -19,6 +19,7 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory, sessionToolDirectory } from "./external-directory"
 import { SafeFileIO } from "@/file/safe-io"
 import { AuthoritySignal } from "@/project/authority-signal"
+import { PayloadIntegrity } from "./payload-integrity"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
@@ -64,6 +65,7 @@ export const EditTool = Tool.define("edit", {
         contentOld = approved?.bytes.toString("utf8") ?? ""
         if (approved) await FileTime.assert(ctx.sessionID, filePath)
         contentNew = params.newString
+        PayloadIntegrity.assert({ content: contentNew, before: contentOld, messages: ctx.messages })
         diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
         await ctx.ask({
           permission: "edit",
@@ -93,6 +95,7 @@ export const EditTool = Tool.define("edit", {
       await FileTime.assert(ctx.sessionID, filePath)
       contentOld = approved.bytes.toString("utf8")
       contentNew = replace(contentOld, params.oldString, params.newString, params.replaceAll)
+      PayloadIntegrity.assert({ content: contentNew, before: contentOld, messages: ctx.messages })
 
       diff = trimDiff(
         createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),

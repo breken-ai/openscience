@@ -28,6 +28,7 @@ import { ToolSelection } from "./tool-selection"
 import { InvalidCall } from "@/tool/invalid-call"
 import { resolveAccessRoute } from "./access-route"
 import { providerErrorMetadata } from "./provider-error"
+import { Toolset } from "./toolset"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -251,6 +252,23 @@ export namespace LLM {
     }
 
     const trace = input.trace
+    const activeTools = Toolset.active(tools)
+    if (trace && !input.small) {
+      const previous = await SessionTraceStore.read(input.sessionID)
+        .then((state) =>
+          Toolset.previous(state.harness, {
+            messageID: trace.messageID,
+            profile: input.agent.name,
+            mode: input.agent.mode,
+          }),
+        )
+        .catch((error) => {
+          l.warn("failed to read previous tool availability", { error })
+          return undefined
+        })
+      const notice = Toolset.notice(activeTools, previous)
+      if (notice) system.push(notice)
+    }
     const harness = trace
       ? SessionHarness.snapshot({
           agent: input.agent,
@@ -309,7 +327,7 @@ export namespace LLM {
       topP: params.topP,
       topK: params.topK,
       providerOptions: ProviderTransform.providerOptions(input.model, params.options),
-      activeTools: Object.keys(tools).filter((x) => x !== "invalid"),
+      activeTools,
       tools,
       maxOutputTokens,
       abortSignal: input.abort,
