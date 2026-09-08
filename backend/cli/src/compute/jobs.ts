@@ -14,6 +14,7 @@ import { Instance } from "../project/instance"
 import { Sandbox } from "../sandbox/sandbox"
 import { Filesystem } from "../util/filesystem"
 import { FileLease } from "../util/file-lease"
+import { AtomicRename } from "../util/atomic-rename"
 import { ProvenanceEnvelope } from "../science/provenance/envelope"
 import { ExecutionAuthority } from "../project/execution"
 import { ComputeLifecycle } from "./lifecycle"
@@ -659,7 +660,7 @@ export namespace ComputeJobs {
         .then(() => file.writeFile(JSON.stringify(clean, null, 2), "utf8"))
         .then(() => file.sync())
         .finally(() => file.close())
-      await fs.rename(temp, filepath)
+      await AtomicRename.replace(temp, filepath)
       const directory = await fs.open(root, "r").catch(() => undefined)
       await directory?.sync().catch(() => undefined)
       await directory?.close().catch(() => undefined)
