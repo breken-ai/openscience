@@ -752,6 +752,7 @@ export type EventSessionContext = {
       tool: number
       skills: number
       image: number
+      document?: number
     }
     images: number
     total: number
@@ -12890,8 +12891,8 @@ export type FileTrashListResponses = {
     store?: "data" | "workspace"
     payloadPath?: string
     payloadIdentity?: {
-      dev: number
-      ino: number
+      dev: number | string
+      ino: number | string
       size: number
       mode: number
       mtimeMs: number
@@ -12943,8 +12944,8 @@ export type FileTrashCreateResponses = {
     store?: "data" | "workspace"
     payloadPath?: string
     payloadIdentity?: {
-      dev: number
-      ino: number
+      dev: number | string
+      ino: number | string
       size: number
       mode: number
       mtimeMs: number
@@ -13001,8 +13002,8 @@ export type FileTrashRestoreResponses = {
     store?: "data" | "workspace"
     payloadPath?: string
     payloadIdentity?: {
-      dev: number
-      ino: number
+      dev: number | string
+      ino: number | string
       size: number
       mode: number
       mtimeMs: number
@@ -13055,8 +13056,8 @@ export type FileTrashPurgeResponses = {
     store?: "data" | "workspace"
     payloadPath?: string
     payloadIdentity?: {
-      dev: number
-      ino: number
+      dev: number | string
+      ino: number | string
       size: number
       mode: number
       mtimeMs: number

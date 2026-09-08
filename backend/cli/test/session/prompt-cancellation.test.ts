@@ -70,6 +70,92 @@ async function init() {
 }
 
 describe("controlled prompt cancellation", () => {
+  for (const resume of [false, true]) {
+    test(`a parent abort during ${resume ? "resumed" : "new"} child admission cannot start delayed work`, async () => {
+      using local = provider()
+      await using tmp = await tmpdir({ git: true, config: local.config })
+      await Instance.provide({
+        directory: tmp.path,
+        init,
+        fn: async () => {
+          const child = await Session.create({})
+          if (resume) await SessionPrompt.controlled({ ...input(child.id), noReply: true })
+          const entered = Promise.withResolvers<void>()
+          const release = Promise.withResolvers<void>()
+          const drained = Promise.withResolvers<void>()
+          const parent = new AbortController()
+          using hooks = SessionPrompt.testing({
+            beforeLoopAdmission: async () => {
+              entered.resolve()
+              await release.promise
+            },
+          })
+          const work = SessionPrompt.withCancellation(
+            child.id,
+            async () => {
+              try {
+                return await (resume ? SessionPrompt.loop(child.id) : SessionPrompt.prompt(input(child.id)))
+              } finally {
+                drained.resolve()
+              }
+            },
+            parent.signal,
+          )
+          const rejected = work.catch((error: unknown) => error)
+          try {
+            await within(entered.promise)
+            const owner = SessionPrompt.activeController(child.id)
+            parent.abort(new DOMException("Parent stopped", "AbortError"))
+            expect(await within(rejected)).toBeInstanceOf(DOMException)
+            expect(owner?.aborted).toBe(true)
+            expect(SessionPrompt.activeController(child.id)).toBeUndefined()
+            release.resolve()
+            await within(drained.promise)
+            expect(local.requests).toHaveLength(0)
+            expect(
+              (await Session.messages({ sessionID: child.id })).filter((message) => message.info.role === "user"),
+            ).toHaveLength(1)
+          } finally {
+            release.resolve()
+            SessionPrompt.cancel(child.id)
+          }
+        },
+      })
+    })
+  }
+
+  test("a completed child detaches the parent abort before a replacement starts", async () => {
+    using local = provider()
+    await using tmp = await tmpdir({ git: true, config: local.config })
+    await Instance.provide({
+      directory: tmp.path,
+      init,
+      fn: async () => {
+        const child = await Session.create({})
+        const parent = new AbortController()
+        await SessionPrompt.withCancellation(
+          child.id,
+          () => SessionPrompt.prompt({ ...input(child.id), noReply: true }),
+          parent.signal,
+        )
+        const next = SessionPrompt.controlled(input(child.id, "replacement"))
+        const rejected = next.catch((error: unknown) => error)
+        try {
+          await within(local.entered.promise, 10_000)
+          const owner = SessionPrompt.activeController(child.id)
+          parent.abort()
+          expect(owner?.aborted).toBe(false)
+          local.release.resolve()
+          expect((await within(next)).info.role).toBe("assistant")
+          await rejected
+        } finally {
+          local.release.resolve()
+          SessionPrompt.cancel(child.id)
+        }
+      },
+    })
+  }, 20_000)
+
   test("reserves an owner synchronously and immediate cancellation creates no transcript or provider work", async () => {
     using local = provider()
     await using tmp = await tmpdir({ git: true, config: local.config })

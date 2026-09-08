@@ -1,5 +1,5 @@
 import type { AssistantMessage, Part } from "@synsci/sdk/v2/client"
-import { loadedSkillName, reasoningDisplayText } from "./tool-display"
+import { loadedSkillName, privateReasoningOnly, reasoningDisplayText } from "./tool-display"
 
 export type ResearchTraceEntry = {
   message: AssistantMessage
@@ -96,7 +96,8 @@ export function collapsibleTracePart(
 
 /**
  * Keep received prose and tool calls unchanged and chronological. Only
- * lifecycle markers, unreadable reasoning, and entries presented elsewhere are omitted; streaming
+ * lifecycle markers, empty reasoning, and entries presented elsewhere are omitted; private-only
+ * reasoning keeps an availability notice without exposing provider continuation. Streaming
  * reconciliation replaces a duplicate part ID without moving its position.
  */
 export function visibleResearchTrace(entries: ResearchTraceEntry[]): ResearchTraceEntry[] {
@@ -113,7 +114,11 @@ export function visibleResearchTrace(entries: ResearchTraceEntry[]): ResearchTra
   }
   return deduped.filter((entry) => {
     if (entry.hidden || lifecycle(entry.part)) return false
-    return entry.part.type !== "reasoning" || !!reasoningDisplayText(entry.part.text ?? "")
+    return (
+      entry.part.type !== "reasoning" ||
+      !!reasoningDisplayText(entry.part.text ?? "") ||
+      privateReasoningOnly(entry.part.text ?? "")
+    )
   })
 }
 

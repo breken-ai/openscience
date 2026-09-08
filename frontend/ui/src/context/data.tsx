@@ -60,6 +60,20 @@ export type SaveArtifactFn = (path: string) => Promise<void>
 /** Open a durable saved artifact version in the contextual Files surface. */
 export type OpenArtifactFn = (id: string) => void
 
+export type ComputeJobDetails = {
+  id: string
+  name: string
+  status: string
+  command: string
+  completed_at?: string
+  exit_code?: number | null
+  error?: string
+  capture_error?: string
+  cleanup_error?: string
+  lifecycle?: { delivery: string; resource: string; recoverable: boolean }
+  artifacts?: { path: string; artifact_id?: string }[]
+}
+
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
   init: (props: {
@@ -72,6 +86,8 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     onOpenFile?: (path: string) => void
     onOpenArtifact?: OpenArtifactFn
     onSaveArtifact?: SaveArtifactFn
+    onLoadComputeJob?: (id: string) => Promise<ComputeJobDetails | undefined>
+    onResolveFileReceipts?: (sessionID: string, paths: readonly string[]) => Promise<string[]>
   }) => {
     return {
       get store() {
@@ -87,6 +103,8 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       openFile: props.onOpenFile,
       openArtifact: props.onOpenArtifact,
       saveArtifact: props.onSaveArtifact,
+      loadComputeJob: props.onLoadComputeJob,
+      resolveFileReceipts: props.onResolveFileReceipts,
     }
   },
 })

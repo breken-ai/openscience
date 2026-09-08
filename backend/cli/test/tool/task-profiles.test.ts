@@ -20,6 +20,29 @@ import { PermissionNext } from "../../src/permission/next"
 import { tmpdir } from "../fixture/fixture"
 import { MessageV2 } from "../../src/session/message-v2"
 import { Session } from "../../src/session"
+import { Tool } from "../../src/tool/tool"
+
+test("Task validation normalizes omitted, null and blank continuation fields before dispatch", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const task = await TaskTool.init()
+      const base = { description: "Inspect source", prompt: "Inspect locally", subagent_type: "explore" }
+      for (const session_id of [undefined, null, "", "   "]) {
+        const input = { ...base, session_id }
+        const validated = Tool.validate("task", task, input)
+        expect(validated.success).toBe(true)
+        if (!validated.success) throw validated.error
+        expect(validated.value.session_id).toBeUndefined()
+        expect(normalizeTaskAttemptInput(input, "ses_parent_real").session_id).toBeUndefined()
+      }
+      expect(Tool.validate("task", task, { ...base, session_id: "wrong-prefix" }).success).toBe(false)
+      const exact = Tool.validate("task", task, { ...base, session_id: " ses_exact_child " })
+      expect(exact.success && exact.value.session_id).toBe("ses_exact_child")
+    },
+  })
+})
 
 test("Task advertises generic phases and accepts an explicit domain specialist lens", async () => {
   await using tmp = await tmpdir()

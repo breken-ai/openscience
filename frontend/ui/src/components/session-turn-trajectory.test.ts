@@ -35,6 +35,7 @@ const codeContext = (await vite.ssrLoadModule("@synsci/ui/context/code")) as typ
 const marked = (await vite.ssrLoadModule("@synsci/ui/context/marked")) as typeof import("../context/marked")
 const parts = (await vite.ssrLoadModule("@synsci/ui/message-part")) as typeof import("./message-part")
 const turn = (await vite.ssrLoadModule("@synsci/ui/session-turn")) as typeof import("./session-turn")
+const compute = (await vite.ssrLoadModule("@synsci/ui/compute-job-details")) as typeof import("./compute-job-details")
 const markdown = (await vite.ssrLoadModule("@synsci/ui/markdown")) as typeof import("./markdown")
 const assets = (await vite.ssrLoadModule(
   "/src/utils/markdown-assets.ts",
@@ -87,7 +88,12 @@ const read = (id: string, file: string, start: number): ToolPart => ({
 })
 
 type Store = Parameters<typeof data.DataProvider>[0]["data"]
-type Callbacks = { saveArtifact?: (path: string) => Promise<void>; openFile?: (path: string) => void }
+type Callbacks = {
+  saveArtifact?: (path: string) => Promise<void>
+  openFile?: (path: string) => void
+  loadComputeJob?: Parameters<typeof data.DataProvider>[0]["onLoadComputeJob"]
+  resolveFileReceipts?: Parameters<typeof data.DataProvider>[0]["onResolveFileReceipts"]
+}
 const mount = (view: () => JSX.Element, store: Store, callbacks: Callbacks = {}) => {
   const host = document.createElement("div")
   host.className = "session-scroller"
@@ -100,6 +106,8 @@ const mount = (view: () => JSX.Element, store: Store, callbacks: Callbacks = {})
           directory: "/research",
           onSaveArtifact: callbacks.saveArtifact,
           onOpenFile: callbacks.openFile,
+          onLoadComputeJob: callbacks.loadComputeJob,
+          onResolveFileReceipts: callbacks.resolveFileReceipts,
           get children() {
             return dialog.DialogProvider({
               get children() {
@@ -213,7 +221,7 @@ describe("reasoning rows", () => {
     expect(host.querySelector('[data-slot="reasoning-part-body"]')?.textContent).toContain(part.text)
   })
 
-  test.each(["", " \n ", "[REDACTED]", "[REDACTED]\n[REDACTED]"])("omits non-readable reasoning %j", async (text) => {
+  test.each(["", " \n "])("omits non-readable reasoning %j", async (text) => {
     const part = { ...reasoning("prt_redacted", { start: 1_000, end: 2_000 }), text }
     const host = mount(() => parts.Part({ part, message: assistant(2_000), hideCopy: true }), empty())
     await settle()
@@ -309,7 +317,7 @@ describe("reasoning rows", () => {
     await ready(() => host.querySelector('[data-component="reasoning-part"]') === null)
   })
 
-  test("interleaved encrypted parts do not add blank rows or repeated notices to a completed turn", async () => {
+  test("private-only steps show availability without exposing continuation or replacing readable text", async () => {
     const message = assistant(2_000)
     const visible = reasoning("prt_visible", { start: 1_000, end: 2_000 })
     const answer: TextPart = { id: "prt_answer", sessionID, messageID: message.id, type: "text", text: "Final answer." }
@@ -333,8 +341,9 @@ describe("reasoning rows", () => {
     )
     await ready(() => host.textContent?.includes(answer.text) === true)
     expect(host.querySelector('[data-slot="session-turn-collapsible-trigger-content"]')).not.toBeNull()
-    expect(host.querySelectorAll('[data-component="reasoning-part"]')).toHaveLength(1)
-    expect(host.querySelector('[data-slot="reasoning-part-body"]')?.textContent).toContain(visible.text)
+    expect(host.querySelectorAll('[data-component="reasoning-part"]')).toHaveLength(3)
+    expect(host.querySelectorAll('[data-slot="reasoning-unavailable"]')).toHaveLength(2)
+    expect(host.textContent).toContain(visible.text)
     expect(host.querySelector('[data-origin="provider-reasoning-unavailable"]')).toBeNull()
     expect(host.textContent).not.toContain("did not provide readable reasoning")
     expect(host.textContent).not.toContain("[REDACTED]")
@@ -1874,4 +1883,150 @@ describe("shell-written outputs", () => {
     await ready(() => saved.length === 1)
     expect(saved).toEqual(["/session-scratch/figure.png"])
   })
+})
+
+describe("current compute details", () => {
+  test("terminal job details can be read and refreshed while the original receipt remains unchanged", async () => {
+    let available = true
+    const host = mount(() => compute.ComputeJobDetails({ id: "job_setup" }), empty(), {
+      loadComputeJob: async () =>
+        available
+          ? {
+              id: "job_setup",
+              name: "Setup",
+              status: "succeeded",
+              command: "offline",
+              exit_code: 0,
+              lifecycle: { delivery: "none", resource: "closed", recoverable: false },
+            }
+          : undefined,
+    })
+    const button = [...host.querySelectorAll("button")].find((value) =>
+      value.textContent?.includes("View current job"),
+    )!
+    button.click()
+    await ready(() => host.textContent?.includes("Current status: succeeded") === true)
+    expect(host.textContent).toContain("Exit code: 0")
+    expect(host.textContent).toContain("Resource: closed")
+    available = false
+    ;[...host.querySelectorAll("button")]
+      .find((value) => value.textContent?.includes("Refresh current status"))!
+      .click()
+    await ready(() => host.textContent?.includes("no longer available") === true)
+    expect(host.textContent).not.toContain("Current status: succeeded")
+  })
+})
+
+test("current existence checks omit deleted Git paths and retain canonical Bash evidence", async () => {
+  const message = assistant(3_000)
+  const command: ToolPart = {
+    id: "prt_bash_receipt",
+    sessionID,
+    messageID: message.id,
+    type: "tool",
+    tool: "bash",
+    callID: "call_outputs",
+    state: {
+      status: "completed",
+      input: { command: "offline" },
+      title: "Create evidence",
+      output: "",
+      metadata: {
+        exit: 0,
+        outputFiles: [
+          {
+            path: "/research/AUDIT_EVIDENCE.json",
+            name: "AUDIT_EVIDENCE.json",
+            size: 10,
+            modified: 1,
+            change: "created",
+          },
+        ],
+      },
+      time: { start: 1000, end: 2000 },
+    },
+  }
+  const patch: Part = {
+    id: "prt_git",
+    sessionID,
+    messageID: message.id,
+    type: "patch",
+    hash: "hash",
+    files: ["/research/deleted.py"],
+  }
+  const store: Store = {
+    ...empty(),
+    message: { [sessionID]: [user, message] },
+    part: { [user.id]: [], [message.id]: [command, patch] },
+  }
+  const opened: string[] = []
+  const host = mount(() => turn.SessionTurn({ sessionID, messageID: user.id }), store, {
+    saveArtifact: async () => {},
+    openFile: (path) => opened.push(path),
+    resolveFileReceipts: async (id, paths) => {
+      expect(id).toBe(sessionID)
+      expect(paths).toEqual(["/research/AUDIT_EVIDENCE.json", "/research/deleted.py"])
+      return ["/research/AUDIT_EVIDENCE.json"]
+    },
+  })
+  await ready(() => host.querySelector('[data-slot="session-turn-output-file"]') !== null)
+  const files = [...host.querySelectorAll<HTMLButtonElement>('[data-slot="session-turn-output-file"]')]
+  expect(files.map((file) => file.title)).toEqual(["/research/AUDIT_EVIDENCE.json"])
+  files[0].click()
+  expect(opened).toEqual(["/research/AUDIT_EVIDENCE.json"])
+})
+
+test("compute dispatch stays labeled as a historical snapshot and suppresses GPU none", async () => {
+  const receipt: ToolPart = {
+    id: "prt_compute_snapshot",
+    sessionID,
+    messageID: "msg_0002",
+    type: "tool",
+    tool: "compute_job",
+    callID: "call_compute",
+    state: {
+      status: "completed",
+      input: { action: "start", gpu: "none" },
+      title: "Set up tests",
+      output: "Dispatched local job. Status queued.",
+      metadata: { job: { id: "job", status: "queued" } },
+      time: { start: 1, end: 2 },
+    },
+  }
+  const host = mount(() => parts.Part({ part: receipt, message: assistant(2) }), empty())
+  await ready(() => host.textContent?.includes("queued at dispatch") === true)
+  expect(host.textContent).not.toContain("none ·")
+  expect(receipt.state.status).toBe("completed")
+  expect("metadata" in receipt.state && receipt.state.metadata).toMatchObject({ job: { status: "queued" } })
+})
+
+test("unavailable file checks stay explicit and can recover without offering unverified output", async () => {
+  const message = assistant(3000)
+  const patch: Part = {
+    id: "prt_receipt_retry",
+    sessionID,
+    messageID: message.id,
+    type: "patch",
+    hash: "hash",
+    files: ["/research/result.json"],
+  }
+  const store: Store = {
+    ...empty(),
+    message: { [sessionID]: [user, message] },
+    part: { [user.id]: [], [message.id]: [patch] },
+  }
+  let unavailable = true
+  const host = mount(() => turn.SessionTurn({ sessionID, messageID: user.id }), store, {
+    saveArtifact: async () => {},
+    resolveFileReceipts: async () => {
+      if (unavailable) throw new Error("offline")
+      return ["/research/result.json"]
+    },
+  })
+  await ready(() => host.textContent?.includes("outputs could not be checked") === true)
+  expect(host.querySelector('[data-slot="session-turn-output-file"]')).toBeNull()
+  unavailable = false
+  ;[...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Retry file check"))!.click()
+  await ready(() => host.querySelector('[data-slot="session-turn-output-file"]') !== null)
+  expect(host.textContent).not.toContain("outputs could not be checked")
 })

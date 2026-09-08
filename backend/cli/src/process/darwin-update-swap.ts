@@ -1,17 +1,18 @@
 import { lstat } from "node:fs/promises"
 import path from "node:path"
 import { SafeDirectoryIO } from "../file/safe-directory-io"
+import { FileIdentity } from "../file/identity"
 import { SafeTrashIO } from "../file/safe-trash-io"
 
 export const DARWIN_UPDATE_SWAP_ARG = "--desktop-update-swap"
 
 function validIdentity(entry: unknown): entry is SafeDirectoryIO.Entry {
-  return Boolean(
-    Number.isSafeInteger((entry as SafeDirectoryIO.Entry | undefined)?.dev) &&
-    (entry as SafeDirectoryIO.Entry).dev >= 0 &&
-    Number.isSafeInteger((entry as SafeDirectoryIO.Entry | undefined)?.ino) &&
-    (entry as SafeDirectoryIO.Entry).ino > 0 &&
-    ["file", "directory"].includes((entry as SafeDirectoryIO.Entry | undefined)?.type ?? ""),
+  if (!entry || typeof entry !== "object") return false
+  const value = entry as Partial<SafeDirectoryIO.Entry>
+  const dev = FileIdentity.Value.safeParse(value.dev)
+  const ino = FileIdentity.Value.safeParse(value.ino)
+  return (
+    dev.success && ino.success && !FileIdentity.equal(ino.data, 0) && ["file", "directory"].includes(value.type ?? "")
   )
 }
 

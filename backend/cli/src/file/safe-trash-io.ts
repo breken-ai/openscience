@@ -1,5 +1,6 @@
+import { FileIdentity } from "./identity"
 import crypto from "node:crypto"
-import nodefs, { constants as FS, type Stats } from "node:fs"
+import nodefs, { constants as FS } from "node:fs"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { dlopen, FFIType, toArrayBuffer, type Pointer } from "bun:ffi"
@@ -12,8 +13,8 @@ import { WindowsSafeIO } from "./windows-safe-io"
  */
 export namespace SafeTrashIO {
   export type Identity = {
-    dev: number
-    ino: number
+    dev: FileIdentity.Value
+    ino: FileIdentity.Value
     size: number
     mode: number
     mtimeMs: number
@@ -34,7 +35,7 @@ export namespace SafeTrashIO {
   type Directory = {
     fd: number
     expected: string
-    before: Stats
+    before: FileIdentity.Stat
     close(): Promise<void>
   }
 
@@ -246,9 +247,7 @@ export namespace SafeTrashIO {
   }
 
   function stat(fd: number) {
-    return new Promise<Stats>((resolve, reject) => {
-      nodefs.fstat(fd, (error, value) => (error ? reject(error) : resolve(value)))
-    })
+    return FileIdentity.fstat(fd)
   }
 
   function sync(fd: number, directory = false) {
@@ -308,7 +307,7 @@ export namespace SafeTrashIO {
     return digest.digest("hex")
   }
 
-  function identity(value: Stats): Identity {
+  function identity(value: FileIdentity.Stat): Identity {
     const kind = value.isDirectory() ? "directory" : value.isFile() ? "file" : undefined
     if (!kind) throw new Error("Only regular files and directories can be moved to trash")
     return {
@@ -324,8 +323,7 @@ export namespace SafeTrashIO {
 
   function same(left: Identity, right: Identity) {
     return (
-      left.dev === right.dev &&
-      left.ino === right.ino &&
+      FileIdentity.same(left, right) &&
       left.size === right.size &&
       left.mtimeMs === right.mtimeMs &&
       left.ctimeMs === right.ctimeMs &&
@@ -334,7 +332,7 @@ export namespace SafeTrashIO {
   }
 
   function sameObject(left: Identity, right: Identity) {
-    return left.dev === right.dev && left.ino === right.ino && left.kind === right.kind
+    return FileIdentity.same(left, right) && left.kind === right.kind
   }
 
   function sameMoved(left: Identity, right: Identity) {
@@ -344,17 +342,15 @@ export namespace SafeTrashIO {
   async function verify(directory: Directory) {
     const [after, current, canonical] = await Promise.all([
       stat(directory.fd),
-      fs.lstat(directory.expected),
+      FileIdentity.lstat(directory.expected),
       fs.realpath(directory.expected),
     ]).catch(() => [undefined, undefined, undefined] as const)
     if (
       !after?.isDirectory() ||
       !current?.isDirectory() ||
       current.isSymbolicLink() ||
-      directory.before.dev !== after.dev ||
-      directory.before.ino !== after.ino ||
-      current.dev !== after.dev ||
-      current.ino !== after.ino ||
+      !FileIdentity.same(directory.before, after) ||
+      !FileIdentity.same(current, after) ||
       canonical !== directory.expected
     ) {
       throw new Error(`Trash directory identity changed during access: ${directory.expected}`)
@@ -365,7 +361,7 @@ export namespace SafeTrashIO {
     const expected = path.resolve(target)
     const canonical = await fs.realpath(expected)
     if (canonical !== expected) throw new Error(`Refusing an indirect trash directory: ${target}`)
-    const requested = await fs.lstat(expected)
+    const requested = await FileIdentity.lstat(expected)
     if (!requested.isDirectory() || requested.isSymbolicLink()) {
       throw new Error(`Trash path is not a direct directory: ${target}`)
     }
@@ -374,7 +370,7 @@ export namespace SafeTrashIO {
       const result: Directory = {
         fd: handle.fd,
         expected,
-        before: await handle.stat(),
+        before: await FileIdentity.stat(handle),
         close: () => handle.close(),
       }
       await verify(result)
@@ -478,7 +474,7 @@ export namespace SafeTrashIO {
     const missing: string[] = []
     const cursor = { value: expected }
     while (true) {
-      const info = await fs.lstat(cursor.value).catch((cause: NodeJS.ErrnoException) => {
+      const info = await FileIdentity.lstat(cursor.value).catch((cause: NodeJS.ErrnoException) => {
         if (cause.code === "ENOENT") return
         throw cause
       })
@@ -788,7 +784,7 @@ export namespace SafeTrashIO {
     }
   }
 
-  async function empty(directory: Directory, device: number) {
+  async function empty(directory: Directory, device: FileIdentity.Value) {
     for (const entry of await entries(directory.fd)) {
       const tomb = `.openscience-purge-${crypto.randomUUID()}`
       renameExclusive(directory, entry, directory, tomb)
@@ -808,7 +804,7 @@ export namespace SafeTrashIO {
         close: () => close(opened.value),
       }
       try {
-        if (child.before.dev !== device) {
+        if (!FileIdentity.equal(child.before.dev, device)) {
           throw new Error(`Refusing to purge a mounted trash subtree: ${child.expected}`)
         }
         await empty(child, device)
@@ -883,7 +879,7 @@ export namespace SafeTrashIO {
         }
         const directory = await openChild(target.parent, tomb, path.join(target.parent.expected, tomb))
         try {
-          if (directory.before.dev !== target.parent.before.dev) {
+          if (!FileIdentity.equal(directory.before.dev, target.parent.before.dev)) {
             throw new Error(`Refusing to purge a mounted trash root: ${target.resolved}`)
           }
           await empty(directory, directory.before.dev)

@@ -148,6 +148,19 @@ describe("SessionProcessor.toolErrorLoopAction", () => {
     expect(SessionProcessor.toolErrorLoopAction(parts, "task")).toBe("none")
   })
 
+  test("persisted recovery guidance does not change the original failure identity", () => {
+    const cause = (id: string) => `No child session ${id} exists for this session. No child was started.`
+    const parts = [
+      errored("task", cause("ses_a")),
+      errored("task", `${cause("ses_b")}\n\n${SessionProcessor.toolErrorGuidance("task")}`),
+      errored("task", cause("ses_c")),
+    ]
+    expect(SessionProcessor.toolErrorLoopCount(parts, "task")).toBe(3)
+    expect(SessionProcessor.toolErrorLoopAction(parts, "task")).toBe("stop")
+    parts.push(errored("task", "Delegation is not permitted for child sessions."))
+    expect(SessionProcessor.toolErrorLoopAction(parts, "task")).toBe("none")
+  })
+
   test("a different failure cause or a different tool does not count", () => {
     const parts = [
       errored("task", "No child session ses_a exists for this session."),

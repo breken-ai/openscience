@@ -153,10 +153,91 @@ test("kernel env filtering keeps runtime configuration but drops credentials", (
   })
 })
 
+test("Windows runtime environment filtering preserves mixed-case system keys and rejects ambient injection", () => {
+  const input = {
+    Path: "C:\\fixture\\bin",
+    SystemRoot: "C:\\Windows",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    Temp: "C:\\fixture\\temp",
+    Pathext: ".COM;.EXE;.BAT;.CMD",
+    Node_Options: "--require C:\\private\\inject.cjs",
+    Node_Path: "C:\\private\\node",
+    PythonStartup: "C:\\private\\inject.py",
+    PythonInspect: "1",
+    PythonUserBase: "C:\\private\\python",
+    OpenAi_Api_Key: "provider-secret",
+    Aws_Secret_Access_Key: "aws-secret",
+    Modal_Token_Id: "ak-host",
+    Openscience_Desktop_Update_Token: "host-capability",
+    Private_Research_Token: "private-secret",
+  }
+  expect(OpenScience.filterEnvForKernel(input, "win32")).toEqual({
+    PATH: input.Path,
+    SYSTEMROOT: input.SystemRoot,
+    COMSPEC: input.ComSpec,
+    TEMP: input.Temp,
+    PATHEXT: input.Pathext,
+  })
+})
+
+test("Windows kernel overlays collapse key aliases and cannot restore mixed-case host capabilities", () => {
+  const result = OpenScience.kernelEnv(
+    { Path: "C:\\host\\bin", SystemRoot: "C:\\Windows" },
+    {
+      pAtH: "C:\\selected\\bin",
+      Modal_Token_Secret: "as-host",
+      Openscience_Desktop_Parent_Token: "parent-control",
+      RunPod_Api_Key: "compute-control",
+    },
+    "win32",
+  )
+  expect(result.PATH).toBe("C:\\selected\\bin")
+  expect(result.SYSTEMROOT).toBe("C:\\Windows")
+  expect(Object.keys(result).filter((key) => key.toUpperCase() === "PATH")).toEqual(["PATH"])
+  expect(Object.keys(result).some((key) => /modal|parent|runpod/i.test(key))).toBe(false)
+  expect(OpenScience.kernelEnv({ PATH: "C:\\old\\bin" }, { Path: undefined }, "win32").PATH).toBeUndefined()
+})
+
+test("POSIX runtime key matching stays case-sensitive", () => {
+  for (const platform of ["linux", "darwin"] as const) {
+    expect(
+      OpenScience.filterEnvForKernel(
+        {
+          PATH: "/usr/bin",
+          Path: "/unapproved",
+          SystemRoot: "/unapproved",
+          NODE_OPTIONS: "--require /private.js",
+          PYTHONSTARTUP: "/private.py",
+        },
+        platform,
+      ),
+    ).toEqual({ PATH: "/usr/bin" })
+  }
+})
+
+test("Windows subprocess filtering preserves BYOK routing policy under case variants", () => {
+  const result = OpenScience.filterEnvForSubprocess(
+    {
+      Path: "C:\\bin",
+      OpenRouter_Api_Key: "sk-or-user-owned",
+      OpenRouter_Base_Url: "https://atlas.test/api/llm/proxy/openrouter/v1",
+      OpenAi_Api_Key: "thk_managed_openai",
+      Modal_Token_Id: "ak-host",
+      Node_Options: "--require C:\\private.cjs",
+    },
+    "win32",
+  )
+  expect(result).toEqual({
+    PATH: "C:\\bin",
+    OPENROUTER_API_KEY: "sk-or-user-owned",
+    OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+  })
+})
+
 test("kernel subprocesses cannot fall back to host Git config or credential prompts", () => {
   const env = OpenScience.kernelEnv({ PATH: "/usr/bin", HOME: "/home/researcher" })
   expect(env.GIT_CONFIG_NOSYSTEM).toBe("1")
-  expect(env.GIT_CONFIG_GLOBAL).toBe("/dev/null")
+  expect(env.GIT_CONFIG_GLOBAL).toBe(os.devNull)
   expect(env.GIT_TERMINAL_PROMPT).toBe("0")
 })
 

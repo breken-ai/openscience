@@ -98,3 +98,19 @@ describe("session context samples", () => {
     expect(compactContextTokens(950, "en")).toBe("950")
   })
 })
+
+test("document composition remains a separate estimate when reported usage replaces the header total", () => {
+  const composition = {
+    total: 120,
+    tokens: { system: 10, text: 20, reasoning: 5, tool: 15, skills: 5, image: 25, document: 40 },
+  }
+  const call = {
+    id: "msg_2",
+    role: "assistant",
+    summary: false,
+    tokens: { input: 400, output: 100, reasoning: 40, cache: { read: 200, write: 0 } },
+  } as AssistantMessage
+  const live = estimate([call], 120, composition)
+  expect(latestContext([call], live)).toEqual({ total: 700, source: "usage", composition })
+  expect(latestContext([{ ...call, id: "msg_3" }], live)).toEqual({ total: 700, source: "usage" })
+})

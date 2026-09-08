@@ -341,7 +341,7 @@ class PythonKernel implements Kernel {
       file: interpreter.binary,
       args: ["-u", scriptPath],
       workspace,
-      readable,
+      readable: [...readable, ...(opts?.extraReadable ?? [])],
       extraWritable: [scriptPath, configPath, cachePath, ...(opts?.extraWritable ?? [])],
       unreadable: OpenScience.kernelSensitivePaths(),
       options: {

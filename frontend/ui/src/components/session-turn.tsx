@@ -15,7 +15,19 @@ import { findLast } from "@synsci/util/array"
 import { getDirectory, getFilename } from "@synsci/util/path"
 
 import { Binary } from "@synsci/util/binary"
-import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, ParentProps, Show, Switch } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Match,
+  on,
+  onCleanup,
+  ParentProps,
+  Show,
+  Switch,
+} from "solid-js"
 import { DiffChanges } from "./diff-changes"
 import { Message, Part, QuestionPrompt } from "./message-part"
 import {
@@ -26,6 +38,7 @@ import {
   pendingOperations,
   type PendingOperation,
   reasoningDisplayText,
+  privateReasoningOnly,
   stripRedactedReasoning,
   writtenFiles,
 } from "./tool-display"
@@ -357,7 +370,8 @@ export function SessionTurn(
       if (!msgParts) continue
       for (const p of msgParts) {
         if (p?.type === "tool") return true
-        if (p?.type === "reasoning" && reasoningDisplayText(p.text ?? "")) return true
+        if (p?.type === "reasoning" && (reasoningDisplayText(p.text ?? "") || privateReasoningOnly(p.text ?? "")))
+          return true
       }
     }
     return false
@@ -503,10 +517,29 @@ export function SessionTurn(
     assistantMessages().flatMap((message) => data.store.part[message.id] ?? emptyParts),
   )
   const emptyWritten: string[] = []
-  const written = createMemo(() => writtenFiles(turnParts(), { resolve: resolveReceipt }), emptyWritten, {
-    equals: same,
-  })
-  const linkedFiles = createMemo(() => writtenFiles(turnParts(), { canonicalOnly: true, resolve: resolveReceipt }))
+  const candidates = createMemo(
+    () => writtenFiles(turnParts(), { canonicalOnly: true, resolve: resolveReceipt }),
+    emptyWritten,
+    {
+      equals: same,
+    },
+  )
+  const outputsIdle = createMemo(() => data.store.session_status[props.sessionID]?.type === "idle")
+  const [existing, { refetch: refreshReceipts }] = createResource(
+    () => {
+      if (!data.resolveFileReceipts || !candidates().length) return false
+      return { paths: candidates(), idle: outputsIdle(), sessionID: props.sessionID }
+    },
+    ({ paths, sessionID }) =>
+      data.resolveFileReceipts!(sessionID, paths).then(
+        (paths) => ({ paths, error: false }),
+        () => ({ paths: [], error: true }),
+      ),
+  )
+  const written = createMemo(() =>
+    data.resolveFileReceipts ? candidates().filter((path) => existing()?.paths.includes(path)) : candidates(),
+  )
+  const linkedFiles = written
   const pending = createMemo(() => pendingOperations(turnParts()))
 
   const response = createMemo(() =>
@@ -1012,6 +1045,19 @@ export function SessionTurn(
                       </section>
                     </Show>
                     {/* Session outputs stay editable in scratch until explicitly kept as immutable Results. */}
+                    <Show when={!working() && existing()?.error}>
+                      <div data-slot="session-turn-output-error">
+                        <span>Session outputs could not be checked.</span>
+                        <Button
+                          variant="ghost"
+                          size="small"
+                          disabled={existing.loading}
+                          onClick={() => void refreshReceipts()}
+                        >
+                          Retry file check
+                        </Button>
+                      </div>
+                    </Show>
                     <Show when={isLastUserMessage() && !working() && !!data.saveArtifact && written().length > 0}>
                       <section data-slot="session-turn-session-outputs">
                         <header>

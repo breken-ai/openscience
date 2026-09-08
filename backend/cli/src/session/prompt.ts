@@ -288,19 +288,25 @@ export namespace SessionPrompt {
   /** Reserve cancellation ownership before any asynchronous prompt preparation.
    * The eventual loop reuses this controller, so an abort waiting on durable
    * coordination cannot miss the handoff or cancel a replacement request. */
-  export const controlled = fn(RuntimePromptInput, (input) => {
-    assertNotBusy(input.sessionID)
+  export async function withCancellation<T>(sessionID: string, action: () => Promise<T>, signal?: AbortSignal) {
+    signal?.throwIfAborted()
+    assertNotBusy(sessionID)
     const controller = new AbortController()
-    pending().set(input.sessionID, controller)
-    processActive.add(activityKey(input.sessionID))
-    return admission.run({ sessionID: input.sessionID, controller }, async () => {
+    pending().set(sessionID, controller)
+    processActive.add(activityKey(sessionID))
+    const stop = () => cancel(sessionID, controller.signal, signal?.reason)
+    signal?.addEventListener("abort", stop, { once: true })
+    return await admission.run({ sessionID, controller }, async () => {
       try {
-        return await cancellable(controller.signal, () => prompt(input))
+        return await cancellable(controller.signal, action)
       } finally {
-        cancel(input.sessionID, controller.signal, completed)
+        signal?.removeEventListener("abort", stop)
+        cancel(sessionID, controller.signal, completed)
       }
     })
-  })
+  }
+
+  export const controlled = fn(RuntimePromptInput, (input) => withCancellation(input.sessionID, () => prompt(input)))
 
   export const prompt = fn(RuntimePromptInput, async (input) => {
     const reservation = pending().get(input.sessionID)

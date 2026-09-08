@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { AssistantMessage, Message, Part, TextPart, ToolPart, UserMessage } from "@synsci/sdk/v2/client"
-import { contextComposition } from "./context-composition"
+import { contextComposition, recordedContextComposition } from "./context-composition"
 
 const user = (id: string, system?: string): UserMessage => ({
   id,
@@ -159,4 +159,20 @@ test("an unsuccessful empty summary does not erase available history", () => {
   expect(contextComposition(messages, {}, call)).toEqual([])
   expect(contextComposition(messages, { old: [text("old", "data")] }, summary)).toEqual([])
   expect(contextComposition([], {}, call)).toEqual([])
+})
+
+test("recorded estimates expose documents once without changing provider billing totals", () => {
+  const value = {
+    total: 120,
+    tokens: { system: 10, text: 20, reasoning: 5, tool: 15, skills: 5, image: 25, document: 40 },
+  }
+  const rows = recordedContextComposition(value)
+  expect(rows.find((row) => row.label === "Documents")?.tokens).toBe(40)
+  expect(rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0)).toBe(value.total)
+  expect(value.total).toBe(120)
+  expect(
+    recordedContextComposition({ ...value, tokens: { ...value.tokens, document: undefined } }).find(
+      (row) => row.label === "Documents",
+    )?.tokens,
+  ).toBeUndefined()
 })

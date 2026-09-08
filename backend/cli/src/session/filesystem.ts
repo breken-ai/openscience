@@ -891,6 +891,18 @@ export namespace SessionFilesystem {
     return !grants.some((grant) => permits(grant, "write"))
   }
 
+  /** Old project sessions may predate project grants altogether. That absence
+   * is distinct from a user's explicit read-only, consumed, or revoked grant:
+   * a compatibility fallback must never turn a recorded restriction into write
+   * authority. Call again inside the mutation lease to observe later changes. */
+  export async function allowsLegacyProjectWrite(input: { sessionID: string; path: string }) {
+    const record = await state(input.sessionID)
+    const target = await canonical(input.path, workspaceGrant(record)?.path ?? record.directory)
+    assertPrivate(record, target, "write")
+    if (!(await Instance.containsCanonicalPath(target))) return false
+    return !record.grants.some((grant) => Filesystem.contains(grant.path, target))
+  }
+
   /**
    * An exact app-managed tool output belongs to the session that produced it.
    * This is deliberately narrower than a normal filesystem grant: callers may

@@ -17,7 +17,7 @@ async function retained(input: {
   error?: MessageV2.Assistant["error"]
 }) {
   await using tmp = await tmpdir({ git: true })
-  return Instance.provide({
+  return await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const parent = await Session.create({})
@@ -176,8 +176,12 @@ async function retained(input: {
         expect(await Session.messages({ sessionID: child.id })).toEqual(before)
         return { result, tools }
       } finally {
-        await Session.remove(child.id)
-        await Session.remove(parent.id)
+        try {
+          await Session.remove(child.id)
+          await Session.remove(parent.id)
+        } finally {
+          await Instance.dispose()
+        }
       }
     },
   })

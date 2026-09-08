@@ -10,6 +10,31 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Keep delegated-agent progress connected throughout execution and propagate parent
+  cancellation through child preparation, resumed work and active model requests.
+  Normalize empty continuation fields and stop repeated same-cause failures even
+  after recovery guidance has been attached to an earlier error.
+- Cancel scientific connector queue waits and retry backoff promptly, and prevent
+  late connector responses from publishing success or saving files after a stop.
+- Show the active assignment when a worker is reused, retain the reasoning/activity
+  toggle when no readable reasoning was returned, and distinguish historical
+  compute receipts from a job's current state, including completed jobs.
+- Share the prepared Python runtime between scientific kernels, shell commands and
+  local compute without restoring ambient Python injection paths or provider keys.
+  Observe bounded filesystem changes for shell output receipts, including scratch
+  and non-Git files, and remove deleted paths from the output list.
+- Return saved, formatted file contents and hashes in patch receipts. Use guarded
+  atomic replacement on macOS and Linux, preserve concurrent edits during rollback,
+  and honor revoked or read-only filesystem grants when trashing/restoring files.
+- Preserve Windows drive letters and colons in patch paths, and handle Windows
+  environment key casing consistently without admitting host credentials.
+- Preserve exact large file identities in recoverable trash and guarded writes,
+  close recovery handles after metadata failures, and keep ordinary file-save
+  paths present during replacement on macOS and Linux.
+- Report failed language-server startup through diagnostics status without retrying
+  on every read, and include document tokens in estimated context composition.
+- Clarify environment readiness, nested test-process verification and protected
+  evaluator seed retention in Research, delegation and benchmark guidance.
 - Publish the Windows desktop installer unsigned, with a workflow warning that
   names the missing values, until the Microsoft Artifact Signing profile and its
   repository configuration are complete.

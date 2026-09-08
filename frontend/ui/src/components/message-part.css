@@ -1895,3 +1895,16 @@
     color: var(--text-base);
   }
 }
+
+[data-component="compute-job-details"] {
+  margin-block: 8px;
+  padding: 8px 12px;
+  border-left: 1px solid var(--border-weaker-base);
+  color: var(--text-weak);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+
+  p {
+    margin-block: 4px;
+  }
+}

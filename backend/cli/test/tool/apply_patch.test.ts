@@ -8,6 +8,7 @@ import { tmpdir } from "../fixture/fixture"
 import { FileTrash } from "../../src/file/trash"
 import { Session } from "../../src/session"
 import { SessionFilesystem } from "../../src/session/filesystem"
+import { Storage } from "../../src/storage/storage"
 
 const baseCtx = {
   sessionID: "test",
@@ -173,7 +174,7 @@ describe("tool.apply_patch freeform", () => {
         expect(await fs.readFile(path.join(fixture.path, "nested", "new.txt"), "utf-8")).toBe("created\n")
         expect(await fs.readFile(modifyPath, "utf-8")).toBe("line1\nchanged\n")
         await expect(fs.readFile(deletePath, "utf-8")).rejects.toThrow()
-        expect(result.output).toContain("A nested/new.txt")
+        expect(result.output).toContain(`A ${path.join("nested", "new.txt")}`)
         expect(await FileTrash.list(Instance.project.id)).toHaveLength(1)
       },
     })
@@ -226,18 +227,25 @@ describe("tool.apply_patch freeform", () => {
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
-        const target = path.join(fixture.path, "delete.txt")
-        await fs.writeFile(target, "obsolete\n", "utf8")
-        const result = await execute({ patchText: "*** Begin Patch\n*** Delete File: delete.txt\n*** End Patch" }, ctx)
+        try {
+          const target = path.join(fixture.path, "delete.txt")
+          await fs.writeFile(target, "obsolete\n", "utf8")
+          const result = await execute(
+            { patchText: "*** Begin Patch\n*** Delete File: delete.txt\n*** End Patch" },
+            ctx,
+          )
 
-        expect(calls).toHaveLength(1)
-        expect(calls[0]?.metadata.files).toMatchObject([{ type: "delete", before: "obsolete\n", after: "" }])
-        expect(result.metadata.trash).toHaveLength(1)
-        expect(result.output).toContain("Recoverable for 30 days: ftr_")
-        await expect(fs.readFile(target)).rejects.toThrow()
-        expect(await FileTrash.list(Instance.project.id)).toMatchObject([
-          { id: result.metadata.trash[0]?.id, originalPath: target, state: "trash" },
-        ])
+          expect(calls).toHaveLength(1)
+          expect(calls[0]?.metadata.files).toMatchObject([{ type: "delete", before: "obsolete\n", after: "" }])
+          expect(result.metadata.trash).toHaveLength(1)
+          expect(result.output).toContain("Recoverable for 30 days: ftr_")
+          await expect(fs.readFile(target)).rejects.toThrow()
+          expect(await FileTrash.list(Instance.project.id)).toMatchObject([
+            { id: result.metadata.trash[0]?.id, originalPath: target, state: "trash" },
+          ])
+        } finally {
+          await Instance.dispose()
+        }
       },
     })
   })
@@ -264,7 +272,7 @@ describe("tool.apply_patch freeform", () => {
 
         const moveFile = permissionCall.metadata.files[0]
         expect(moveFile.type).toBe("move")
-        expect(moveFile.relativePath).toBe("renamed/dir/name.txt")
+        expect(moveFile.relativePath).toBe(path.join("renamed", "dir", "name.txt"))
         expect(moveFile.movePath).toBe(path.join(fixture.path, "renamed/dir/name.txt"))
         expect(moveFile.before).toBe("old content\n")
         expect(moveFile.after).toBe("new content\n")
@@ -341,18 +349,22 @@ describe("tool.apply_patch freeform", () => {
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
-        const original = path.join(fixture.path, "old", "name.txt")
-        await fs.mkdir(path.dirname(original), { recursive: true })
-        await fs.writeFile(original, "old content\n", "utf-8")
+        try {
+          const original = path.join(fixture.path, "old", "name.txt")
+          await fs.mkdir(path.dirname(original), { recursive: true })
+          await fs.writeFile(original, "old content\n", "utf-8")
 
-        const patchText =
-          "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
+          const patchText =
+            "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+          await execute({ patchText }, ctx)
 
-        const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
-        await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
-        expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
+          const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
+          await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
+          expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
+        } finally {
+          await Instance.dispose()
+        }
       },
     })
   })
@@ -800,13 +812,15 @@ describe("tool.apply_patch legacy session authority", () => {
         // Project mode resolves patch paths against the project directory, as
         // the affected desktop sessions did.
         const session = await Session.create({ workspace: "project" })
-        // The captured legacy shape: a scratch workspace grant, no project-root
-        // write grant. Revoke any project-root grant a fresh session received.
-        for (const grant of await SessionFilesystem.list(session.id)) {
-          if (grant.access === "write" && !grant.time.revoked && grant.path === Instance.directory) {
-            await SessionFilesystem.revoke(session.id, grant.id)
-          }
-        }
+        // A migrated session never had a project-root grant. Revoking one is
+        // deliberately different: that history must continue to deny access.
+        await Storage.update<SessionFilesystem.State>(
+          ["session_filesystem", Instance.project.id, session.id],
+          (draft) => {
+            draft.grants = draft.grants.filter((grant) => grant.path !== Instance.directory)
+            draft.revision++
+          },
+        )
         const legacyCtx = { ...ctx, sessionID: session.id }
         const obsolete = path.join(fixture.path, "plans", "obsolete.md")
         const renamed = path.join(fixture.path, "plans", "renamed.md")
@@ -826,8 +840,35 @@ describe("tool.apply_patch legacy session authority", () => {
         await expect(fs.readFile(obsolete, "utf-8")).rejects.toThrow()
         await expect(fs.readFile(renamed, "utf-8")).rejects.toThrow()
         expect(await fs.readFile(path.join(fixture.path, "plans", "archive", "renamed.md"), "utf-8")).toBe("kept\n")
-        expect(result.output).toContain("D plans/obsolete.md")
+        expect(result.output).toContain(`D ${path.join("plans", "obsolete.md")}`)
         expect(await FileTrash.list(Instance.project.id)).toHaveLength(2)
+      },
+    })
+  })
+
+  test("revoked project authority cannot be treated as a legacy missing grant", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx } = makeCtx()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await Session.create({ workspace: "project" })
+        const grants = (await SessionFilesystem.list(session.id)).filter((grant) => grant.path === Instance.directory)
+        expect(grants.length).toBeGreaterThan(0)
+        for (const grant of grants) await SessionFilesystem.revoke(session.id, grant.id)
+        const target = path.join(fixture.path, "retained.txt")
+        await fs.writeFile(target, "retain\n")
+        await expect(
+          execute(
+            { patchText: "*** Begin Patch\n*** Delete File: retained.txt\n*** End Patch" },
+            {
+              ...ctx,
+              sessionID: session.id,
+            },
+          ),
+        ).rejects.toThrow()
+        expect(await fs.readFile(target, "utf8")).toBe("retain\n")
+        expect(await FileTrash.list(Instance.project.id)).toEqual([])
       },
     })
   })

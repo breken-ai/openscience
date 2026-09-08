@@ -14,9 +14,10 @@ import { Code } from "@synsci/ui/code"
 import { Markdown } from "@synsci/ui/markdown"
 import type { AssistantMessage, Message, Part, UserMessage } from "@synsci/sdk/v2/client"
 import { useLanguage } from "@/context/language"
-import { contextComposition } from "./context-composition"
+import { contextComposition, recordedContextComposition, type ContextCompositionEstimate } from "./context-composition"
 
 interface SessionContextTabProps {
+  composition?: ContextCompositionEstimate
   messages: () => Message[]
   visibleUserMessages: () => UserMessage[]
   view: () => ReturnType<ReturnType<typeof useLayout>["view"]>
@@ -284,7 +285,30 @@ export function SessionContextTab(props: SessionContextTabProps) {
           <For each={stats()}>{(stat) => <Stat label={stat.label} value={stat.value} />}</For>
         </div>
 
-        <Show when={breakdown().length > 0}>
+        <Show when={props.composition}>
+          {(composition) => (
+            <section class="flex flex-col gap-2" aria-label="Recorded context composition estimate">
+              <div class="text-12-regular text-text-weak">Recorded context composition (estimate)</div>
+              <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-12-regular">
+                <For each={recordedContextComposition(composition())}>
+                  {(entry) => (
+                    <>
+                      <dt>{entry.label}</dt>
+                      <dd class="text-right">
+                        {entry.tokens === undefined ? "Not reported" : `~${number(entry.tokens)} tokens`}
+                      </dd>
+                    </>
+                  )}
+                </For>
+              </dl>
+              <div class="text-11-regular text-text-weaker">
+                Estimates from the last observed pre-call context. Documents and images are separate from text. Excludes
+                tool definitions and provider-specific wrappers; these are not billed token counts.
+              </div>
+            </section>
+          )}
+        </Show>
+        <Show when={!props.composition && breakdown().length > 0}>
           <div class="flex flex-col gap-2">
             <div class="text-12-regular text-text-weak">{language.t("context.composition.title")}</div>
             <div class="h-2 w-full rounded-full bg-surface-base overflow-hidden flex">

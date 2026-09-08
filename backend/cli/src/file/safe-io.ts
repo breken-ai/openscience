@@ -1,3 +1,4 @@
+import { FileIdentity } from "./identity"
 import { constants as FS } from "node:fs"
 import fs, { type FileHandle } from "node:fs/promises"
 import path from "node:path"
@@ -38,8 +39,8 @@ export namespace SafeFileIO {
   export type Snapshot = {
     bytes: Buffer
     size: number
-    dev: number
-    ino: number
+    dev: FileIdentity.Value
+    ino: FileIdentity.Value
     mode: number
     mtimeMs: number
   }
@@ -82,7 +83,7 @@ export namespace SafeFileIO {
     const expected = path.resolve(filepath)
     const canonical = await fs.realpath(filepath)
     if (canonical !== expected) throw new Error(`Refusing to follow an indirect symbolic link: ${filepath}`)
-    const requested = await fs.lstat(filepath)
+    const requested = await FileIdentity.lstat(filepath)
     if (requested.isSymbolicLink()) throw new Error(`Refusing to follow a symbolic link: ${filepath}`)
     if (!requested.isFile()) throw new Error(`Only regular files can be accessed: ${filepath}`)
     await hooks.value?.afterReadStat?.(filepath)
@@ -90,16 +91,14 @@ export namespace SafeFileIO {
     // handle identity/type checks reject it without waiting for a writer.
     const handle = await fs.open(filepath, FS.O_RDONLY | FS.O_NOFOLLOW | FS.O_NONBLOCK)
     try {
-      const before = await handle.stat()
-      const current = await fs.lstat(filepath)
+      const before = await FileIdentity.stat(handle)
+      const current = await FileIdentity.lstat(filepath)
       const confirmed = await fs.realpath(filepath)
       if (!before.isFile()) throw new Error(`Only regular files can be accessed: ${filepath}`)
       if (
-        requested.dev !== before.dev ||
-        requested.ino !== before.ino ||
+        !FileIdentity.same(requested, before) ||
         current.isSymbolicLink() ||
-        current.dev !== before.dev ||
-        current.ino !== before.ino ||
+        !FileIdentity.same(current, before) ||
         confirmed !== expected
       ) {
         throw new Error(`Refusing to access ${filepath}: the file identity changed during access`)
@@ -114,17 +113,19 @@ export namespace SafeFileIO {
     }
   }
 
-  async function stable(filepath: string, handle: FileHandle, before: Awaited<ReturnType<FileHandle["stat"]>>) {
-    const [after, current, canonical] = await Promise.all([handle.stat(), fs.lstat(filepath), fs.realpath(filepath)])
+  async function stable(filepath: string, handle: FileHandle, before: FileIdentity.Stat) {
+    const [after, current, canonical] = await Promise.all([
+      FileIdentity.stat(handle),
+      FileIdentity.lstat(filepath),
+      fs.realpath(filepath),
+    ])
     if (
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
+      !FileIdentity.same(before, after) ||
       before.size !== after.size ||
       before.mtimeMs !== after.mtimeMs ||
       before.ctimeMs !== after.ctimeMs ||
       current.isSymbolicLink() ||
-      current.dev !== after.dev ||
-      current.ino !== after.ino ||
+      !FileIdentity.same(current, after) ||
       canonical !== path.resolve(filepath)
     ) {
       throw new Error(`Refusing to read ${filepath}: the file changed during access`)
@@ -238,7 +239,7 @@ export namespace SafeFileIO {
   }
 
   export async function absent(filepath: string) {
-    const exists = await fs.lstat(filepath).then(
+    const exists = await FileIdentity.lstat(filepath).then(
       () => true,
       (error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return false
@@ -253,7 +254,7 @@ export namespace SafeFileIO {
       if (error instanceof LimitError) throw new Error(`Refusing to write ${filepath}: the file changed after approval`)
       throw error
     })
-    if (current.dev !== approved.dev || current.ino !== approved.ino) {
+    if (!FileIdentity.same(current, approved)) {
       throw new Error(`Refusing to write ${filepath}: the file identity changed after approval`)
     }
     if (!current.bytes.equals(approved.bytes)) {

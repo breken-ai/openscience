@@ -199,9 +199,9 @@ describe("literal research trace", () => {
     expect(visibleResearchTrace([first, partial, second, final])).toEqual([first, final, second])
   })
 
-  test("omits provider-hidden placeholders rather than inventing a reasoning row", () => {
+  test("retains private-only steps for an honest availability notice", () => {
     const unavailable = narrative("reason", "reasoning", "[REDACTED]")
-    expect(visibleResearchTrace([unavailable])).toEqual([])
+    expect(visibleResearchTrace([unavailable])).toEqual([unavailable])
     const mixed = narrative("mixed", "reasoning", "Readable prose. [REDACTED]")
     expect(visibleResearchTrace([mixed])).toEqual([mixed])
     expect(visibleResearchTrace([mixed])[0]).toBe(mixed)

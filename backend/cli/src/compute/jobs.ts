@@ -7,6 +7,7 @@ import os from "node:os"
 import z from "zod"
 import { Global } from "../global"
 import { OpenScience } from "../openscience"
+import { KernelEnvironmentMutation } from "../science/kernel/environment-mutation"
 import { Shell } from "../shell/shell"
 import { Instance } from "../project/instance"
 import { Sandbox } from "../sandbox/sandbox"
@@ -1686,7 +1687,14 @@ export namespace ComputeJobs {
 
     await fs.mkdir(logsOf(scope.root), { recursive: true })
     await fs.writeFile(exitOf(scope.root, job.id), "", { mode: 0o600 })
-    const wrapped = `(${job.command}\n); code=$?; printf %s "$code" > ${quote(exitOf(scope.root, job.id))}; exit "$code"`
+    // Generic local jobs share Bash's selected interpreter and package overlay.
+    // Capability jobs already carry their exact attested runtime and command.
+    const runtime = job.capability_execution ? undefined : await KernelEnvironmentMutation.pythonSubprocessRuntime()
+    // Set these after login-shell initialization too, which can reset PATH.
+    const initialize = runtime
+      ? `export PATH=${quote(runtime.env.PATH ?? process.env.PATH ?? "")}; export PYTHONPATH=${quote(runtime.env.PYTHONPATH)}; `
+      : ""
+    const wrapped = `${initialize}(${job.command}\n); code=$?; printf %s "$code" > ${quote(exitOf(scope.root, job.id))}; exit "$code"`
     const sandboxOptions = job.capability_execution
       ? { ...authority.sandbox, enabled: true, network: "deny" as const }
       : authority.sandbox
@@ -1696,6 +1704,12 @@ export namespace ComputeJobs {
       workspace: authority.writable,
       readable: [
         ...authority.readable,
+        ...(runtime
+          ? [
+              runtime.env.PYTHONPATH,
+              ...(runtime.binary ? [path.dirname(path.dirname(await fs.realpath(runtime.binary)))] : []),
+            ]
+          : []),
         ...(job.capability_execution?.runtime_root ? [job.capability_execution.runtime_root] : []),
       ],
       readOnly: job.capability_execution?.runtime_root ? [job.capability_execution.runtime_root] : [],

@@ -7,6 +7,7 @@ import type { ConnectorHit } from "../science/connectors"
 import { SessionFilesystem } from "../session/filesystem"
 import { SafeFileIO } from "../file/safe-io"
 import { outcomeFor, formatBytes, classifyError, safeSegment } from "../science/connectors/fetch-outcome"
+import { AuthoritySignal } from "../project/authority-signal"
 
 async function existingFile(target: string, body: string, size: number) {
   const source = await SafeFileIO.open(target).catch((error: NodeJS.ErrnoException) => {
@@ -144,6 +145,7 @@ export const ScienceSearchTool = Tool.define("science_search", {
       }
     }
 
+    ctx.abort.throwIfAborted()
     if (!hits.length) {
       return {
         title: `${connector.name}: ${params.query}`,
@@ -242,6 +244,7 @@ export const ScienceFetchTool = Tool.define("science_fetch", {
       }
     }
 
+    ctx.abort.throwIfAborted()
     const outcome = outcomeFor({ db: connector.id, id: params.id, format, payload })
 
     if (outcome.kind === "miss")
@@ -280,13 +283,33 @@ export const ScienceFetchTool = Tool.define("science_fetch", {
     const workspace = await SessionFilesystem.workspace(ctx.sessionID)
     const relative = `science-${safeSegment(connector.id)}-${path.basename(outcome.filename)}`
     const requested = path.join(workspace, relative)
-    const target = (await SessionFilesystem.authorize({ sessionID: ctx.sessionID, path: requested, access: "write" }))
-      .path
-    const existing = await existingFile(target, outcome.body, outcome.bytes)
-    if (existing.exists && !existing.matches) {
-      throw new Error(`Refusing to replace the existing session file ${relative}; read or rename it first`)
+    const authorized = await SessionFilesystem.authorize({ sessionID: ctx.sessionID, path: requested, access: "write" })
+    const authorization = await SessionFilesystem.bindAuthorization({
+      sessionID: ctx.sessionID,
+      access: "write",
+      authorized,
+    })
+    using binding = {
+      [Symbol.dispose]() {
+        SessionFilesystem.releaseAuthorization(authorization)
+      },
     }
-    if (!existing.exists) await SafeFileIO.write(target, outcome.body)
+    await AuthoritySignal.exclusive(async () => {
+      ctx.abort.throwIfAborted()
+      const current = await SessionFilesystem.revalidateAuthorization(authorization, {
+        path: authorized.path,
+        access: "write",
+      })
+      if (current.path !== authorized.path) throw new Error("Scientific output destination changed before saving")
+      const target = current.path
+      const existing = await existingFile(target, outcome.body, outcome.bytes)
+      ctx.abort.throwIfAborted()
+      if (existing.exists && !existing.matches) {
+        throw new Error(`Refusing to replace the existing session file ${relative}; read or rename it first`)
+      }
+      if (!existing.exists) await SafeFileIO.write(target, outcome.body)
+    })
+    ctx.abort.throwIfAborted()
 
     return {
       title: `${connector.name}: ${params.id} → ${outcome.filename}`,

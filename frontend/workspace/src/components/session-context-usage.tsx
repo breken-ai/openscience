@@ -71,6 +71,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
       <Dialog title={language.t("session.tab.context")} size="large" transition>
         <div style={{ width: "min(760px, 82vw)", height: "min(680px, 75vh)", overflow: "hidden" }}>
           <SessionContextTab
+            composition={props.sample?.composition}
             messages={messages}
             visibleUserMessages={visibleUserMessages}
             view={() => view}

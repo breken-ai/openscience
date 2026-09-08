@@ -1,3 +1,4 @@
+import { FileIdentity } from "./identity"
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -25,8 +26,8 @@ export namespace FileTrash {
     Project.touchActivity(projectID).catch((error) => log.warn("file activity update failed", { error }))
 
   const Identity = z.object({
-    dev: z.number().int().nonnegative(),
-    ino: z.number().int().nonnegative(),
+    dev: FileIdentity.Value,
+    ino: FileIdentity.Value,
     size: z.number().int().nonnegative(),
     mode: z.number().int().nonnegative(),
     mtimeMs: z.number().nonnegative(),
@@ -155,7 +156,7 @@ export namespace FileTrash {
   function stableIdentity(record: Record, current: SafeTrashIO.Snapshot) {
     const approved = record.payloadIdentity
     if (!approved) return true
-    return approved.dev === current.dev && approved.ino === current.ino && approved.kind === current.kind
+    return FileIdentity.same(approved, current) && approved.kind === current.kind
   }
 
   async function verifyPayload(record: Record) {
@@ -240,6 +241,7 @@ export namespace FileTrash {
 
   type AuthorizationScope = {
     authorization?: SessionFilesystem.Authorization
+    validate?: () => Promise<void>
     ownership: "borrowed" | "owned" | "none"
     [Symbol.dispose](): void
   }
@@ -286,18 +288,13 @@ export namespace FileTrash {
       sessionID: input.sessionID,
       path: input.path,
       access: "write",
-    }).catch((error) => {
-      // Authorization equivalence for in-project edits. `apply_patch` update/add
-      // overwrite a project-internal file through an unauthorized scope (the
-      // broker resolves a project path without a per-path grant), so a session
-      // that may overwrite that file in place may also move or delete it. A
-      // session saved before the project-root write grant existed (scratch
-      // grant only, empty project grants) has no grant to authorize the trash,
-      // so recognize the same edit authority the caller vouches for. Only a
-      // genuine project-internal canonical path qualifies below; this mints,
-      // restores, and widens no grant, and stays fail-closed for every path
-      // outside the project (a revoked or read-only external grant included).
-      if (input.projectInternal && SessionFilesystem.DeniedError.isInstance(error)) return undefined
+    }).catch(async (error) => {
+      if (
+        input.projectInternal &&
+        SessionFilesystem.DeniedError.isInstance(error) &&
+        (await SessionFilesystem.allowsLegacyProjectWrite(input))
+      )
+        return undefined
       throw error
     })
     if (!authorized) {
@@ -305,7 +302,14 @@ export namespace FileTrash {
       if (!(await Instance.containsCanonicalPath(canonical))) {
         throw new SessionFilesystem.DeniedError({ sessionID: input.sessionID, path: canonical, access: "write" })
       }
-      return { ownership: "none", [Symbol.dispose]() {} }
+      return {
+        ownership: "none",
+        async validate() {
+          if (await SessionFilesystem.allowsLegacyProjectWrite(input)) return
+          throw new SessionFilesystem.DeniedError({ sessionID: input.sessionID, path: canonical, access: "write" })
+        },
+        [Symbol.dispose]() {},
+      }
     }
     const authorization = await SessionFilesystem.bindAuthorization({
       sessionID: input.sessionID,
@@ -377,6 +381,7 @@ export namespace FileTrash {
     using _ = await Lock.write(lock(input.projectID))
     await purgeExpiredUnlocked(input.projectID, now)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== canonical) throw new Error("Trash path changed after authorization")
@@ -387,27 +392,31 @@ export namespace FileTrash {
       }
       const data = await target(Global.Path.data)
       const trusted = await SafeTrashIO.ensureDataEntry(data, segment(input.projectID), id)
-      const store = home ? await SafeTrashIO.workspace(home, id) : undefined
-      const destination = store?.payload ?? path.join(trusted, "payload")
-      const initial = Record.parse({
-        id,
-        projectID: input.projectID,
-        sessionID: input.sessionID,
-        originalPath: canonical,
-        filename: path.basename(canonical),
-        size: snapshot.kind === "file" ? snapshot.size : 0,
-        sha256: snapshot.sha256,
-        mode: snapshot.mode,
-        kind: snapshot.kind,
-        store: home ? "workspace" : "data",
-        payloadPath: home ? destination : undefined,
-        payloadIdentity: snapshot,
-        state: "trash",
-        trashedAt: now,
-        expiresAt: now + RETENTION_MS,
-      })
+      let store: Awaited<ReturnType<typeof SafeTrashIO.workspace>> | undefined
+      let destination = path.join(trusted, "payload")
       const moved = { value: undefined as SafeTrashIO.Identity | undefined }
       try {
+        // Own the store as soon as it exists: metadata validation can throw
+        // before any bytes move and must still discard/close Windows handles.
+        store = home ? await SafeTrashIO.workspace(home, id) : undefined
+        destination = store?.payload ?? destination
+        const initial = Record.parse({
+          id,
+          projectID: input.projectID,
+          sessionID: input.sessionID,
+          originalPath: canonical,
+          filename: path.basename(canonical),
+          size: snapshot.kind === "file" ? snapshot.size : 0,
+          sha256: snapshot.sha256,
+          mode: snapshot.mode,
+          kind: snapshot.kind,
+          store: home ? "workspace" : "data",
+          payloadPath: home ? destination : undefined,
+          payloadIdentity: snapshot,
+          state: "trash",
+          trashedAt: now,
+          expiresAt: now + RETENTION_MS,
+        })
         await SafeTrashIO.writeRecord(path.join(trusted, "record.json"), encoded(initial))
         if (store) await store.write(encoded(initial))
         moved.value = await SafeTrashIO.move(canonical, destination, snapshot, {
@@ -465,6 +474,7 @@ export namespace FileTrash {
     const authorization = authority.authorization
     await hooks.value?.afterAuthorization?.("restore", record, authorization)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== record.originalPath) throw new Error("Trash restore path changed after authorization")
@@ -509,6 +519,7 @@ export namespace FileTrash {
     const authorization = authority.authorization
     await hooks.value?.afterAuthorization?.("purge", record, authorization)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== record.originalPath) throw new Error("Trash purge path changed after authorization")

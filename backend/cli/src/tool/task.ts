@@ -50,7 +50,7 @@ export function classifyTaskContinuation(value: unknown, parentSessionID: string
   return { kind: "continue", sessionID: trimmed }
 }
 
-export function taskContinuationID(value: string | undefined, parentSessionID: string) {
+export function taskContinuationID(value: string | null | undefined, parentSessionID: string) {
   const continuation = classifyTaskContinuation(value, parentSessionID)
   return continuation.kind === "continue" ? continuation.sessionID : undefined
 }
@@ -126,11 +126,13 @@ const parameters = z.object({
     .describe("Optional user-selected biology, physics, or ML specialist for an execute phase"),
   session_id: z
     .string()
-    .startsWith("ses_")
+    .trim()
+    .regex(/^(?:ses_.*)?$/, "Expected an exact child sessionId or an empty value for new work")
+    .nullish()
+    .overwrite((value) => value || undefined)
     .describe(
-      "Exact sessionId returned by an earlier successful Task call from this parent session. Never use the current or parent session ID.",
-    )
-    .optional(),
+      "Omit, null or empty for new work. Continue only an exact child sessionId returned by Task; never invent a suffix or use the parent ID.",
+    ),
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
@@ -607,11 +609,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 })
                 using subscription = defer(unsub)
 
-                function cancel() {
-                  SessionPrompt.cancel(session.id)
-                }
-                ctx.abort.addEventListener("abort", cancel)
-                using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
+                ctx.abort.throwIfAborted()
                 const exists = messages.some(
                   (message) => message.info.role === "user" && message.info.id === reserved.childMessageID,
                 )
@@ -657,7 +655,8 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                     ],
                   })
                 }
-                return run().then(
+                // Keep progress and cancellation connected until the child settles.
+                return await SessionPrompt.withCancellation(session.id, run, ctx.abort).then(
                   (result) => ({ result, error: undefined }),
                   (error: unknown) => ({ result: undefined, error }),
                 )

@@ -1,3 +1,4 @@
+import type { ContextCompositionEstimate } from "@/components/session/context-composition"
 import type { AssistantMessage, Message } from "@synsci/sdk/v2/client"
 import { findLast } from "@synsci/util/array"
 import { TokenUsage } from "@synsci/util/token-usage"
@@ -6,15 +7,19 @@ import { TokenUsage } from "@synsci/util/token-usage"
 // finished assistant turn, or the pre-call composition estimate the server publishes as
 // `session.context` while a turn is in flight (so the number moves during the long
 // first-token wait, not only afterwards).
-export type ContextSample = { total: number; source: "usage" | "estimate" }
+export type ContextSample = { total: number; source: "usage" | "estimate"; composition?: ContextCompositionEstimate }
 
 // A live estimate anchored to the id of the newest message the workspace held when it
 // arrived. Message ids ascend, so a finished turn or compaction summary at or past
 // `after` outranks the estimate without comparing the client's clock to the server's.
-export type ContextEstimate = { total: number; after: string }
+export type ContextEstimate = { total: number; after: string; composition?: ContextCompositionEstimate }
 
-export function estimate(messages: Message[], total: number): ContextEstimate {
-  return { total, after: messages[messages.length - 1]?.id ?? "" }
+export function estimate(
+  messages: Message[],
+  total: number,
+  composition?: ContextCompositionEstimate,
+): ContextEstimate {
+  return { total, after: messages[messages.length - 1]?.id ?? "", ...(composition ? { composition } : {}) }
 }
 
 // The newest assistant message that settles the conversation's size: a finished turn
@@ -41,8 +46,10 @@ export function usageSample(messages: Message[]): ContextSample | undefined {
 
 export function latestContext(messages: Message[], live?: ContextEstimate): ContextSample | undefined {
   const last = settled(messages)
-  if (live && (!last || last.id < live.after)) return { total: live.total, source: "estimate" }
-  return sample(last)
+  const composition = live?.composition && (!last || last.id <= live.after) ? { composition: live.composition } : {}
+  if (live && (!last || last.id < live.after)) return { total: live.total, source: "estimate", ...composition }
+  const reported = sample(last)
+  return reported ? { ...reported, ...composition } : undefined
 }
 
 export function formatContextTokens(total: number, locale: string) {
