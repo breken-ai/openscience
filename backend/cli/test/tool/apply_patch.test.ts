@@ -8,6 +8,7 @@ import { tmpdir } from "../fixture/fixture"
 import { FileTrash } from "../../src/file/trash"
 import { Session } from "../../src/session"
 import { SessionFilesystem } from "../../src/session/filesystem"
+import { Storage } from "../../src/storage/storage"
 
 const baseCtx = {
   sessionID: "test",
@@ -800,13 +801,15 @@ describe("tool.apply_patch legacy session authority", () => {
         // Project mode resolves patch paths against the project directory, as
         // the affected desktop sessions did.
         const session = await Session.create({ workspace: "project" })
-        // The captured legacy shape: a scratch workspace grant, no project-root
-        // write grant. Revoke any project-root grant a fresh session received.
-        for (const grant of await SessionFilesystem.list(session.id)) {
-          if (grant.access === "write" && !grant.time.revoked && grant.path === Instance.directory) {
-            await SessionFilesystem.revoke(session.id, grant.id)
-          }
-        }
+        // A migrated session never had a project-root grant. Revoking one is
+        // deliberately different: that history must continue to deny access.
+        await Storage.update<SessionFilesystem.State>(
+          ["session_filesystem", Instance.project.id, session.id],
+          (draft) => {
+            draft.grants = draft.grants.filter((grant) => grant.path !== Instance.directory)
+            draft.revision++
+          },
+        )
         const legacyCtx = { ...ctx, sessionID: session.id }
         const obsolete = path.join(fixture.path, "plans", "obsolete.md")
         const renamed = path.join(fixture.path, "plans", "renamed.md")
@@ -828,6 +831,33 @@ describe("tool.apply_patch legacy session authority", () => {
         expect(await fs.readFile(path.join(fixture.path, "plans", "archive", "renamed.md"), "utf-8")).toBe("kept\n")
         expect(result.output).toContain("D plans/obsolete.md")
         expect(await FileTrash.list(Instance.project.id)).toHaveLength(2)
+      },
+    })
+  })
+
+  test("revoked project authority cannot be treated as a legacy missing grant", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx } = makeCtx()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await Session.create({ workspace: "project" })
+        const grants = (await SessionFilesystem.list(session.id)).filter((grant) => grant.path === Instance.directory)
+        expect(grants.length).toBeGreaterThan(0)
+        for (const grant of grants) await SessionFilesystem.revoke(session.id, grant.id)
+        const target = path.join(fixture.path, "retained.txt")
+        await fs.writeFile(target, "retain\n")
+        await expect(
+          execute(
+            { patchText: "*** Begin Patch\n*** Delete File: retained.txt\n*** End Patch" },
+            {
+              ...ctx,
+              sessionID: session.id,
+            },
+          ),
+        ).rejects.toThrow()
+        expect(await fs.readFile(target, "utf8")).toBe("retain\n")
+        expect(await FileTrash.list(Instance.project.id)).toEqual([])
       },
     })
   })

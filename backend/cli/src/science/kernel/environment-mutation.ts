@@ -256,12 +256,28 @@ export namespace KernelEnvironmentMutation {
     return {
       ...managed,
       binary,
+      extraReadable: [...(managed.extraReadable ?? []), packages],
       env: {
         ...(managed.env ?? {}),
         PIP_TARGET: packages,
         PYTHONPATH: [packages, managed.env?.PYTHONPATH, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
       },
       ...(allowMutation ? { extraWritable: [packages], sandboxNetwork: "allow" as const } : {}),
+    }
+  }
+
+  /** Shells share the selected interpreter and project package directory, but
+   * must not inherit arbitrary Python import paths from the server environment.
+   * Keep this separate from kernel compatibility overlays: callers restore only
+   * this derived path after their ordinary credential/environment filtering. */
+  export async function pythonSubprocessRuntime(): Promise<
+    KernelStartOptions & { env: Record<string, string> & { PYTHONPATH: string } }
+  > {
+    const runtime = await pythonRuntime("python")
+    const packages = path.join(managedRoot("python", "python"), "site-packages")
+    return {
+      ...runtime,
+      env: { ...(runtime.env ?? {}), PYTHONPATH: packages },
     }
   }
 

@@ -26,6 +26,7 @@ import { ExecutionAuthority } from "@/project/execution"
 import { CommandRuntime } from "@/science/command/registry"
 import { AuthoritySignal } from "@/project/authority-signal"
 import { KernelEnvironmentMutation } from "@/science/kernel/environment-mutation"
+import { FileOutputReceipts } from "@/file/output-receipts"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENSCIENCE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 0
@@ -356,8 +357,22 @@ export const BashTool = Tool.define("bash", async () => {
       // the generation check below still rejects any authority change before
       // the subprocess is created. This keeps independent shell launches from
       // timing out behind environment maintenance.
-      const runtime = await KernelEnvironmentMutation.pythonRuntime("python")
+      const runtime = await KernelEnvironmentMutation.pythonSubprocessRuntime()
       if (runtime.env?.PIP_TARGET) readable.add(runtime.env.PIP_TARGET)
+
+      const outputRoots = (decision: ExecutionAuthority.Decision) =>
+        [
+          ...new Set([
+            decision.workspace,
+            ...decision.writable.filter(
+              (root) => Filesystem.contains(Instance.directory, root) || Filesystem.contains(Instance.worktree, root),
+            ),
+          ]),
+        ].filter((root) => decision.writable.some((allowed) => Filesystem.contains(allowed, root)))
+      const before = await FileOutputReceipts.observe({
+        roots: outputRoots(prepared),
+        unreadable: OpenScience.kernelSensitivePaths(),
+      }).catch(() => undefined)
 
       const started = Date.now()
       const streams = { stdout: "", stderr: "" }
@@ -439,6 +454,9 @@ export const BashTool = Tool.define("bash", async () => {
               // user's key with the Ace managed proxy after subprocessEnv ran.
               env: {
                 ...OpenScience.filterEnvForSubprocess({ ...env, ...(runtime.env ?? {}), ...cache }),
+                // This path is constructed by the runtime resolver, never an
+                // ambient PYTHONPATH. The same directory is in readable above.
+                PYTHONPATH: runtime.env.PYTHONPATH,
                 // The final overlay pass re-sanitizes runtime/cache values and
                 // therefore drops control variables. Restore only the fixed
                 // Git policy from subprocessEnv so Git never falls back to a
@@ -533,6 +551,24 @@ export const BashTool = Tool.define("bash", async () => {
       })
 
       const completed = Date.now()
+      const files = before
+        ? await ExecutionAuthority.require({
+            projectID: Instance.project.id,
+            sessionID: ctx.sessionID,
+            capability: "shell",
+          })
+            .then((decision) =>
+              FileOutputReceipts.finish(before, {
+                roots: outputRoots(decision),
+                unreadable: OpenScience.kernelSensitivePaths(),
+              }),
+            )
+            .catch(() => ({
+              outputFiles: [],
+              outputFilesTruncated: true,
+              outputFilesSource: "filesystem-observation" as const,
+            }))
+        : { outputFiles: [], outputFilesTruncated: true, outputFilesSource: "filesystem-observation" as const }
 
       // The command spawned and ran to completion (or was killed) — record a
       // provenance run node so "what ran" is capturable for shell-produced
@@ -579,6 +615,7 @@ export const BashTool = Tool.define("bash", async () => {
           output: clipped,
           description: params.description,
           provenanceID: node?.id,
+          ...files,
         },
       })
       return {
@@ -588,6 +625,7 @@ export const BashTool = Tool.define("bash", async () => {
           exit: proc.exitCode,
           description: params.description,
           provenanceID: node?.id,
+          ...files,
         },
         output: redactedOutput,
       }

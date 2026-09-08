@@ -240,6 +240,7 @@ export namespace FileTrash {
 
   type AuthorizationScope = {
     authorization?: SessionFilesystem.Authorization
+    validate?: () => Promise<void>
     ownership: "borrowed" | "owned" | "none"
     [Symbol.dispose](): void
   }
@@ -286,18 +287,13 @@ export namespace FileTrash {
       sessionID: input.sessionID,
       path: input.path,
       access: "write",
-    }).catch((error) => {
-      // Authorization equivalence for in-project edits. `apply_patch` update/add
-      // overwrite a project-internal file through an unauthorized scope (the
-      // broker resolves a project path without a per-path grant), so a session
-      // that may overwrite that file in place may also move or delete it. A
-      // session saved before the project-root write grant existed (scratch
-      // grant only, empty project grants) has no grant to authorize the trash,
-      // so recognize the same edit authority the caller vouches for. Only a
-      // genuine project-internal canonical path qualifies below; this mints,
-      // restores, and widens no grant, and stays fail-closed for every path
-      // outside the project (a revoked or read-only external grant included).
-      if (input.projectInternal && SessionFilesystem.DeniedError.isInstance(error)) return undefined
+    }).catch(async (error) => {
+      if (
+        input.projectInternal &&
+        SessionFilesystem.DeniedError.isInstance(error) &&
+        (await SessionFilesystem.allowsLegacyProjectWrite(input))
+      )
+        return undefined
       throw error
     })
     if (!authorized) {
@@ -305,7 +301,14 @@ export namespace FileTrash {
       if (!(await Instance.containsCanonicalPath(canonical))) {
         throw new SessionFilesystem.DeniedError({ sessionID: input.sessionID, path: canonical, access: "write" })
       }
-      return { ownership: "none", [Symbol.dispose]() {} }
+      return {
+        ownership: "none",
+        async validate() {
+          if (await SessionFilesystem.allowsLegacyProjectWrite(input)) return
+          throw new SessionFilesystem.DeniedError({ sessionID: input.sessionID, path: canonical, access: "write" })
+        },
+        [Symbol.dispose]() {},
+      }
     }
     const authorization = await SessionFilesystem.bindAuthorization({
       sessionID: input.sessionID,
@@ -377,6 +380,7 @@ export namespace FileTrash {
     using _ = await Lock.write(lock(input.projectID))
     await purgeExpiredUnlocked(input.projectID, now)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== canonical) throw new Error("Trash path changed after authorization")
@@ -465,6 +469,7 @@ export namespace FileTrash {
     const authorization = authority.authorization
     await hooks.value?.afterAuthorization?.("restore", record, authorization)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== record.originalPath) throw new Error("Trash restore path changed after authorization")
@@ -509,6 +514,7 @@ export namespace FileTrash {
     const authorization = authority.authorization
     await hooks.value?.afterAuthorization?.("purge", record, authorization)
     const result = await AuthoritySignal.exclusive(async () => {
+      await authority.validate?.()
       if (authorization) {
         const current = await SessionFilesystem.revalidateAuthorization(authorization)
         if (current.path !== record.originalPath) throw new Error("Trash purge path changed after authorization")

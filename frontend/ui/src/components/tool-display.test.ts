@@ -223,7 +223,7 @@ describe("writtenFiles", () => {
         ],
         { canonicalOnly: true },
       ),
-    ).toEqual(["/project/new.md"])
+    ).toEqual(["/project/notebook.md", "/project/new.md"])
   })
 
   test("ignores tools that did not finish and parts that are not tools", () => {
@@ -894,4 +894,28 @@ describe("loadedSkillName from recorded metadata", () => {
       }),
     ).toBeUndefined()
   })
+})
+
+test("canonical Bash outputs are receipts and later deletion removes an earlier write", () => {
+  const output = {
+    type: "tool",
+    tool: "bash",
+    state: {
+      status: "completed",
+      input: { command: "not parsed" },
+      metadata: {
+        outputFiles: [
+          { path: "/project/evidence.json", change: "created" },
+          { path: "relative.txt", change: "created" },
+        ],
+      },
+    },
+  }
+  const deleted = {
+    type: "tool",
+    tool: "apply_patch",
+    state: { status: "completed", metadata: { files: [{ type: "delete", filePath: "/project/evidence.json" }] } },
+  }
+  expect(writtenFiles([output], { canonicalOnly: true })).toEqual(["/project/evidence.json"])
+  expect(writtenFiles([output, deleted], { canonicalOnly: true })).toEqual([])
 })

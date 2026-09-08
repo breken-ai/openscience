@@ -109,9 +109,13 @@ export namespace SessionProcessor {
     return last.every((part) => InvalidCall.signature(part.state.input) === signature)
   }
 
-  function toolErrorSignature(error: string) {
+  function toolErrorSignature(error: string, toolName: string) {
+    // Guidance is display text added by this processor, not a new failure cause.
+    // Strip only our exact suffix so persisted annotated errors keep their identity.
+    const guidance = `\n\n${toolErrorGuidance(toolName)}`
+    const cause = error.endsWith(guidance) ? error.slice(0, -guidance.length) : error
     return (
-      error
+      cause
         .toLowerCase()
         .replace(/\b(?:artifact-path|artifact|tool-call|tool):[^\s,;]+/g, "$ref")
         // A bare `ses_` (an invented placeholder) normalizes like a full id.
@@ -129,8 +133,8 @@ export namespace SessionProcessor {
     )
     const last = calls.slice(-threshold)
     if (last.length < threshold) return false
-    const signature = toolErrorSignature(last.at(-1)!.state.error)
-    return last.every((part) => toolErrorSignature(part.state.error) === signature)
+    const signature = toolErrorSignature(last.at(-1)!.state.error, toolName)
+    return last.every((part) => toolErrorSignature(part.state.error, toolName) === signature)
   }
 
   export const TOOL_ERROR_GUIDANCE_AT = 2
@@ -149,11 +153,11 @@ export namespace SessionProcessor {
     )
     const last = calls.at(-1)
     if (!last || last.state.status !== "error") return 0
-    const signature = toolErrorSignature(last.state.error)
+    const signature = toolErrorSignature(last.state.error, toolName)
     let count = 0
     for (let index = calls.length - 1; index >= 0; index--) {
       const state = calls[index].state
-      if (state.status !== "error" || toolErrorSignature(state.error) !== signature) break
+      if (state.status !== "error" || toolErrorSignature(state.error, toolName) !== signature) break
       count++
     }
     return count

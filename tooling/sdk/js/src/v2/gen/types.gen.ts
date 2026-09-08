@@ -752,6 +752,7 @@ export type EventSessionContext = {
       tool: number
       skills: number
       image: number
+      document?: number
     }
     images: number
     total: number

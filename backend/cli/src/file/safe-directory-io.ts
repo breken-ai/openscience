@@ -686,7 +686,9 @@ export namespace SafeDirectoryIO {
     rightExpected: Entry,
     options?: SwapOptions,
   ) {
-    if (process.platform !== "darwin") throw new Error("Atomic application exchange requires macOS")
+    if (process.platform !== "darwin" && process.platform !== "linux") {
+      throw new Error("Atomic entry exchange requires macOS or Linux")
+    }
     const leftPath = direct(left)
     const rightPath = direct(right)
     if (leftPath.parent !== rightPath.parent) throw new Error("Atomic exchange entries must be siblings")

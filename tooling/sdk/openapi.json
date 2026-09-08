@@ -55083,6 +55083,9 @@
                   },
                   "image": {
                     "type": "number"
+                  },
+                  "document": {
+                    "type": "number"
                   }
                 },
                 "required": [

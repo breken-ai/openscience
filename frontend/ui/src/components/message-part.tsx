@@ -33,6 +33,7 @@ import { useDiffComponent } from "../context/diff"
 import { useCodeComponent } from "../context/code"
 import { useDialog } from "../context/dialog"
 import { useI18n } from "../context/i18n"
+import { ComputeJobDetails } from "./compute-job-details"
 import { BasicTool } from "./basic-tool"
 import { ResearchSearchTool } from "./research-search-tool"
 import { GenericTool } from "./basic-tool"
@@ -55,6 +56,7 @@ import { createAutoScroll } from "../hooks"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import {
   reasoningDisplayText,
+  privateReasoningOnly,
   savedArtifact,
   scienceTaskLabel,
   sentenceCaseLabel,
@@ -768,12 +770,18 @@ function completedAt(message: MessageType) {
 PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
   const part = props.part as ReasoningPart
   const text = () => reasoningDisplayText(part.text)
+  const privateOnly = () => privateReasoningOnly(part.text)
   const live = () => !part.time?.end && !completedAt(props.message)
   return (
-    <Show when={text()}>
+    <Show when={text() || privateOnly()}>
       <div data-component="reasoning-part" data-origin="provider-reasoning" data-live={live() ? "true" : undefined}>
         <div data-slot="reasoning-part-body">
-          <Markdown text={text()} cacheKey={part.id} />
+          <Show
+            when={text()}
+            fallback={<span data-slot="reasoning-unavailable">Reasoning text isn’t available for this step.</span>}
+          >
+            <Markdown text={text()} cacheKey={part.id} />
+          </Show>
         </div>
       </div>
     </Show>
@@ -960,8 +968,9 @@ function RemoteComputeTool(props: ToolProps) {
   }
   const gpu = () => {
     const value = job()?.modal
-    if (value && typeof value === "object" && "gpu" in value && typeof value.gpu === "string") return value.gpu
-    return typeof props.input.gpu === "string" ? props.input.gpu : undefined
+    if (value && typeof value === "object" && "gpu" in value && typeof value.gpu === "string" && value.gpu !== "none")
+      return value.gpu
+    return typeof props.input.gpu === "string" && props.input.gpu !== "none" ? props.input.gpu : undefined
   }
   const status = () => (typeof job()?.status === "string" ? job()!.status : props.status)
   return (
@@ -970,9 +979,14 @@ function RemoteComputeTool(props: ToolProps) {
       icon="console"
       trigger={{
         title: props.title || (props.tool === "modal" ? "Modal compute" : "Remote compute"),
-        subtitle: [gpu(), status()].filter(Boolean).join(" · "),
+        subtitle: [gpu(), job() ? `${status()} at ${props.input.action === "start" ? "dispatch" : "check"}` : status()]
+          .filter(Boolean)
+          .join(" · "),
       }}
     >
+      <Show when={typeof job()?.id === "string" ? (job()!.id as string) : undefined}>
+        {(id) => <ComputeJobDetails id={id()} />}
+      </Show>
       <Show when={typeof props.input.command === "string" ? props.input.command : undefined}>
         {(command) => (
           <div data-component="tool-output" data-scrollable>

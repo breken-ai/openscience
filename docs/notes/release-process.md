@@ -56,10 +56,11 @@ never bump a version in a pull request, and add user-visible changes to the
    Exact-version resumes remain bound to the immutable source marker in the
    existing draft release; the workflow rejects any mismatch before building.
 
-   Stable publication requires both macOS and Windows signing. Developer ID
-   signing and notarization credentials, plus Windows Artifact Signing
-   configuration, are mandatory before the draft can be built. Windows
-   installers cannot fall back to an unsigned build.
+   Stable publication requires macOS Developer ID signing and notarization.
+   Windows Artifact Signing runs when all six signing configuration values are
+   present. Until setup is complete, the Windows installer is published unsigned
+   with a workflow warning naming the missing values and a release disclosure.
+   Once configured, signing or signature-verification failures block publication.
    Ad-hoc-signed macOS development packages must never be attached to a stable
    update release.
 

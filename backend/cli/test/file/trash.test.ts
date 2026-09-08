@@ -9,6 +9,7 @@ import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { FileRoutes } from "../../src/server/routes/file"
 import { SessionFilesystem } from "../../src/session/filesystem"
+import { Storage } from "../../src/storage/storage"
 import { executionSession, tmpdir } from "../fixture/fixture"
 
 describe("recoverable source file trash", () => {
@@ -705,6 +706,13 @@ describe("recoverable source file trash", () => {
 })
 
 describe("in-project edit authority for move and delete", () => {
+  async function legacy(sessionID: string) {
+    await Storage.update<SessionFilesystem.State>(["session_filesystem", Instance.project.id, sessionID], (draft) => {
+      draft.grants = draft.grants.filter((grant) => grant.path !== Instance.directory)
+      draft.revision++
+    })
+  }
+
   test("a session with only a scratch grant can trash and restore a project file it may already overwrite", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -712,14 +720,9 @@ describe("in-project edit authority for move and delete", () => {
       fn: async () => {
         const session = await executionSession()
         // Sessions saved before the project-root write grant existed carry a
-        // scratch workspace grant and an empty project grant list. Revoke any
-        // project-root write grant so this session has the captured legacy shape.
-        const projectRoot = await SessionFilesystem.workspace(session.id).then(() => Instance.directory)
-        for (const grant of await SessionFilesystem.list(session.id)) {
-          if (grant.access === "write" && !grant.time.revoked && grant.path === projectRoot) {
-            await SessionFilesystem.revoke(session.id, grant.id)
-          }
-        }
+        // scratch workspace grant and no project grant history. A revocation
+        // is an explicit restriction, not the legacy absence of a grant.
+        await legacy(session.id)
         const target = path.join(tmp.path, "plans", "old-plan.md")
         await fs.mkdir(path.dirname(target), { recursive: true })
         await fs.writeFile(target, "superseded\n")
@@ -746,6 +749,91 @@ describe("in-project edit authority for move and delete", () => {
         })
         expect(restored?.state).toBe("restored")
         expect(await fs.readFile(target, "utf8")).toBe("superseded\n")
+      },
+    })
+  })
+
+  for (const restriction of ["revoked", "read-only"] as const) {
+    test(`legacy compatibility never bypasses ${restriction} project authority`, async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await executionSession()
+          const target = path.join(tmp.path, "retained.txt")
+          await Bun.write(target, "retained\n")
+          if (restriction === "revoked") {
+            const grant = (await SessionFilesystem.list(session.id)).find((item) => item.path === tmp.path)!
+            await SessionFilesystem.revoke(session.id, grant.id)
+          } else {
+            await legacy(session.id)
+            await SessionFilesystem.grant({ sessionID: session.id, path: tmp.path, access: "read", scope: "session" })
+          }
+          await expect(
+            FileTrash.trash({
+              projectID: Instance.project.id,
+              sessionID: session.id,
+              path: target,
+              projectInternal: true,
+            }),
+          ).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)
+          expect(await Bun.file(target).text()).toBe("retained\n")
+          expect(await FileTrash.list(Instance.project.id)).toEqual([])
+        },
+      })
+    })
+  }
+
+  test("legacy restore and purge honor a later explicit read-only grant", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await executionSession()
+        await legacy(session.id)
+        const target = path.join(tmp.path, "recoverable.txt")
+        await Bun.write(target, "recoverable\n")
+        const record = await FileTrash.trash({
+          projectID: Instance.project.id,
+          sessionID: session.id,
+          path: target,
+          projectInternal: true,
+        })
+        await SessionFilesystem.grant({ sessionID: session.id, path: tmp.path, access: "read", scope: "session" })
+        const input = { projectID: Instance.project.id, sessionID: session.id, id: record.id }
+        await expect(FileTrash.restore(input)).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)
+        await expect(FileTrash.purge(input)).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)
+        expect(await Bun.file(record.payloadPath!).text()).toBe("recoverable\n")
+        expect(await Bun.file(target).exists()).toBe(false)
+      },
+    })
+  })
+
+  test("a restriction introduced after legacy authorization wins before mutation", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await executionSession()
+        await legacy(session.id)
+        const target = path.join(tmp.path, "raced.txt")
+        await Bun.write(target, "retained\n")
+        using barrier = FileTrash.testing({
+          afterAuthorization: async (action) => {
+            if (action === "trash")
+              await SessionFilesystem.grant({ sessionID: session.id, path: tmp.path, access: "read", scope: "session" })
+          },
+        })
+        await expect(
+          FileTrash.trash({
+            projectID: Instance.project.id,
+            sessionID: session.id,
+            path: target,
+            projectInternal: true,
+          }),
+        ).rejects.toBeInstanceOf(SessionFilesystem.DeniedError)
+        expect(await Bun.file(target).text()).toBe("retained\n")
+        expect(await FileTrash.list(Instance.project.id)).toEqual([])
       },
     })
   })

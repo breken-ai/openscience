@@ -53,3 +53,29 @@ export function contextComposition(
   const total = entries.reduce((sum, entry) => sum + entry.tokens, 0)
   return entries.filter((entry) => entry.tokens > 0).map((entry) => ({ ...entry, share: entry.tokens / total }))
 }
+
+export type ContextCompositionEstimate = {
+  total: number
+  tokens: {
+    system: number
+    text: number
+    reasoning: number
+    tool: number
+    skills: number
+    image: number
+    document?: number
+  }
+}
+
+/** These are server estimates of separate content buckets, not billed token allocations. */
+export function recordedContextComposition(value: ContextCompositionEstimate) {
+  return [
+    { label: "System instructions", tokens: value.tokens.system },
+    { label: "Conversation text", tokens: value.tokens.text },
+    { label: "Reasoning", tokens: value.tokens.reasoning },
+    { label: "Tool calls and results", tokens: value.tokens.tool },
+    { label: "Skills", tokens: value.tokens.skills },
+    { label: "Images", tokens: value.tokens.image },
+    { label: "Documents", tokens: value.tokens.document },
+  ]
+}

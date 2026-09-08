@@ -86,8 +86,10 @@ Notes:
   is no unsigned stable macOS channel. Both architectures must retain immutable
   GitHub digests and pass their native previous-stable upgrade, packaged
   main/sidecar health, cleanup, and injected safe-rollback canaries before the
-  draft is made public. The Windows installer may be unsigned only when both
-  optional Windows signing secrets are absent, with an explicit release note.
+  draft is made public. Until all six Windows Artifact Signing configuration
+  values are present, the Windows installer is unsigned with a workflow warning
+  naming the missing values and an explicit release note. A configured signing
+  or signature-verification failure must block publication.
 - Organization-scoped workspaces shipped in PR #413. Tests must preserve the
   selected workspace, membership permissions, and purchased-Wallet boundaries;
   a passing personal-account test does not establish organization billing.

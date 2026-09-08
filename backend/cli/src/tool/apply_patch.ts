@@ -20,6 +20,11 @@ import { FileTrash } from "../file/trash"
 import { Lock } from "@/util/lock"
 import { SessionFilesystem } from "@/session/filesystem"
 import { AuthoritySignal } from "@/project/authority-signal"
+import { SafeDirectoryIO } from "../file/safe-directory-io"
+import { SafeFileIO } from "../file/safe-io"
+import { Log } from "../util/log"
+
+const atomicExchange = process.platform === "darwin" || process.platform === "linux"
 
 const PatchParams = z.object({
   patchText: z.string().describe("The full patch text that describes all changes to be made"),
@@ -195,6 +200,7 @@ type PreparedChange = {
   backup?: string
   sourceMoved: boolean
   installed: boolean
+  exchanged?: boolean
   removed?: FileTrash.Record
 }
 
@@ -226,6 +232,44 @@ async function removeInstalled(item: PreparedChange) {
   await assertApprovedFile(item.target, item.stagedApproved)
   await fs.unlink(item.target)
   item.installed = false
+}
+
+async function exchangeUpdate(item: PreparedChange, rollback = false) {
+  const target = item.change.filePath
+  const staged = item.staged!
+  const before = rollback ? item.stagedApproved! : item.change.approved!
+  const after = rollback ? item.change.approved! : item.stagedApproved!
+  const verify = async (left: string, right: string, leftFile: ApprovedFile, rightFile: ApprovedFile) => {
+    await assertApprovedFile(left, leftFile)
+    await assertApprovedFile(right, rightFile)
+  }
+  await SafeDirectoryIO.swapEntries(
+    target,
+    staged,
+    { dev: before.dev, ino: before.ino, type: "file" },
+    { dev: after.dev, ino: after.ino, type: "file" },
+    {
+      afterVerify: (left, right) => verify(left, right, before, after),
+      afterMutation: (left, right) => verify(left, right, after, before),
+    },
+  )
+  item.exchanged = !rollback
+  item.installed = !rollback
+}
+
+async function cleanupStage(item: PreparedChange) {
+  if (!item.staged || !item.stagedApproved) return
+  // A failed exchange rollback can retain an unexpected/original entry at the
+  // staging name. Never delete it merely because its name belongs to us.
+  const approved = item.exchanged ? item.change.approved! : item.stagedApproved
+  try {
+    await assertApprovedFile(item.staged, approved)
+    await fs.unlink(item.staged)
+  } catch {
+    if (await Bun.file(item.staged).exists()) {
+      Log.Default.warn("Patch staging file retained for recovery", { path: item.staged })
+    }
+  }
 }
 
 /**
@@ -296,6 +340,10 @@ async function applyTransaction(changes: FileChange[], ctx: Tool.Context) {
           if (!change.approved || !item.backup) throw new Error(`Missing approved file snapshot for ${change.filePath}`)
           await AuthoritySignal.exclusive(async () => {
             await revalidate(change)
+            if (atomicExchange) {
+              await exchangeUpdate(item)
+              return
+            }
             await fs.rename(change.filePath, item.backup!)
             item.sourceMoved = true
             await assertApprovedFile(item.backup!, change.approved!)
@@ -326,7 +374,7 @@ async function applyTransaction(changes: FileChange[], ctx: Tool.Context) {
         // Cleanup is post-commit housekeeping. A transient unlink failure must
         // not convert a fully committed transaction into an unsafe rollback.
         if (item.backup) await fs.rm(item.backup, { force: true }).catch(() => undefined)
-        if (item.staged) await fs.rm(item.staged, { force: true }).catch(() => undefined)
+        await cleanupStage(item)
       }),
     )
     return prepared.flatMap((item) => (item.removed ? [item.removed] : []))
@@ -334,6 +382,10 @@ async function applyTransaction(changes: FileChange[], ctx: Tool.Context) {
     const rollbackErrors: unknown[] = []
     for (const item of started.toReversed()) {
       try {
+        if (item.exchanged) {
+          await exchangeUpdate(item, true)
+          continue
+        }
         await removeInstalled(item)
         if (item.removed) await FileTrash.rollback(item.removed)
         if (item.sourceMoved && item.backup) {
@@ -353,7 +405,7 @@ async function applyTransaction(changes: FileChange[], ctx: Tool.Context) {
     }
     throw error
   } finally {
-    await Promise.all(prepared.map((item) => (item.staged ? fs.rm(item.staged, { force: true }) : undefined)))
+    await Promise.all(prepared.map(cleanupStage))
   }
 }
 
@@ -400,7 +452,8 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     let totalDiff = ""
 
     const directory = await sessionToolDirectory(ctx)
-    for (const hunk of hunks) {
+    for (let index = 0; index < hunks.length; index++) {
+      const hunk = hunks[index]
       const requested = path.resolve(directory, hunk.path)
       const access = await authorize(requested)
       const filePath = access?.path ?? requested
@@ -497,21 +550,36 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
         }
 
         case "delete": {
+          const next = hunks[index + 1]
+          const replacement =
+            next?.type === "add" && path.resolve(directory, next.path) === requested ? next : undefined
+          if (replacement && !atomicExchange) {
+            throw new Error(
+              "Delete+Add of the same path requires atomic file exchange on this platform. Use one Update File section with the complete old and new contents instead; no files were changed.",
+            )
+          }
           const approved = await readApprovedFile(filePath).catch((error) => {
             throw new Error(`apply_patch verification failed: ${error}`)
           })
           const contentToDelete = approved.content
-          const deleteDiff = trimDiff(createTwoFilesPatch(filePath, filePath, contentToDelete, ""))
+          const newContent = replacement
+            ? replacement.contents.endsWith("\n") || replacement.contents.length === 0
+              ? replacement.contents
+              : `${replacement.contents}\n`
+            : ""
+          const deleteDiff = trimDiff(createTwoFilesPatch(filePath, filePath, contentToDelete, newContent))
 
-          const deletions = contentToDelete.split("\n").length
+          const changes = diffLines(contentToDelete, newContent)
+          const additions = changes.reduce((total, change) => total + (change.added ? (change.count ?? 0) : 0), 0)
+          const deletions = changes.reduce((total, change) => total + (change.removed ? (change.count ?? 0) : 0), 0)
 
           fileChanges.push({
             filePath,
             oldContent: contentToDelete,
-            newContent: "",
-            type: "delete",
+            newContent,
+            type: replacement ? "update" : "delete",
             diff: deleteDiff,
-            additions: 0,
+            additions,
             deletions,
             approved,
             authorization: access?.authorization,
@@ -519,12 +587,14 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           })
 
           totalDiff += deleteDiff + "\n"
+          if (replacement) index++
           break
         }
       }
     }
 
-    // Build per-file metadata for UI rendering (used for both permission and result)
+    // Permission describes the proposed edit. The result is captured separately
+    // after synchronous File.Edited subscribers (including formatters) finish.
     const files = fileChanges.map((change) => ({
       filePath: change.filePath,
       relativePath: path.relative(Instance.worktree, change.movePath ?? change.filePath),
@@ -605,6 +675,38 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     }
     const diagnostics = await LSP.diagnostics()
 
+    const savedFiles = []
+    for (const [index, change] of fileChanges.entries()) {
+      if (change.type === "delete") {
+        savedFiles.push({
+          ...files[index],
+          beforeHash: crypto.createHash("sha256").update(change.oldContent).digest("hex"),
+          afterHash: undefined,
+          formatted: false,
+        })
+        continue
+      }
+      const saved = await AuthoritySignal.exclusive(async () => {
+        await revalidate(change, change.type === "move")
+        const snapshot = await SafeFileIO.read(change.movePath ?? change.filePath)
+        return { ...snapshot, content: snapshot.bytes.toString("utf8") }
+      })
+      const changes = diffLines(change.oldContent, saved.content)
+      savedFiles.push({
+        ...files[index],
+        after: saved.content,
+        diff: trimDiff(
+          createTwoFilesPatch(change.filePath, change.movePath ?? change.filePath, change.oldContent, saved.content),
+        ),
+        additions: changes.reduce((total, item) => total + (item.added ? (item.count ?? 0) : 0), 0),
+        deletions: changes.reduce((total, item) => total + (item.removed ? (item.count ?? 0) : 0), 0),
+        beforeHash:
+          change.type === "add" ? undefined : crypto.createHash("sha256").update(change.oldContent).digest("hex"),
+        afterHash: crypto.createHash("sha256").update(saved.bytes).digest("hex"),
+        formatted: saved.content !== change.newContent,
+      })
+    }
+
     // Generate output summary
     const summaryLines = fileChanges.map((change) => {
       if (change.type === "add") {
@@ -617,6 +719,17 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
       return `M ${path.relative(Instance.worktree, target)}`
     })
     let output = `Success. Updated the following files:\n${summaryLines.join("\n")}`
+    for (const [index, file] of savedFiles.entries()) {
+      if (!file.formatted) continue
+      const formattingDiff = trimDiff(
+        createTwoFilesPatch(file.filePath, file.filePath, fileChanges[index].newContent, file.after),
+      )
+      output += `\n\nSaved contents changed after the edit (for example, by a formatter): ${file.relativePath}\nCurrent SHA-256: ${file.afterHash}\n`
+      output +=
+        formattingDiff.length <= 12_000
+          ? formattingDiff
+          : "The formatting diff is too large to include here. Re-read the saved file before constructing another patch."
+    }
     if (trash.length) {
       output += `\n\nRecoverable for 30 days: ${trash.map((record) => record.id).join(", ")}`
     }
@@ -640,8 +753,8 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     return {
       title: output,
       metadata: {
-        diff: totalDiff,
-        files,
+        diff: savedFiles.map((file) => file.diff + "\n").join(""),
+        files: savedFiles,
         diagnostics,
         trash,
       },

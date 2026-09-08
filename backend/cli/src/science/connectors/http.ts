@@ -117,9 +117,18 @@ function redactRequestError(error: unknown, url: string, headers: Record<string,
 
 const cache = new Map<string, CacheEntry>()
 
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms)
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    signal?.throwIfAborted()
+    const stop = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", stop)
+      resolve()
+    }, ms)
+    signal?.addEventListener("abort", stop, { once: true })
     // Don't let a lone pacing/backoff timer keep the process (or a test run) alive.
     ;(timer as { unref?: () => void }).unref?.()
   })
@@ -129,17 +138,20 @@ function isRetryable(status: number): boolean {
 }
 
 function combineSignals(a: AbortSignal, b?: AbortSignal): AbortSignal {
-  if (!b) return a
-  const controller = new AbortController()
-  const onAbort = () => controller.abort()
-  for (const sig of [a, b]) {
-    if (sig.aborted) {
-      controller.abort()
-      break
-    }
-    sig.addEventListener("abort", onAbort, { once: true })
+  return b ? AbortSignal.any([a, b]) : a
+}
+
+async function wait<T>(pending: Promise<T>, signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  if (!signal) return pending
+  const aborted = Promise.withResolvers<never>()
+  const stop = () => aborted.reject(signal.reason)
+  signal.addEventListener("abort", stop, { once: true })
+  try {
+    return await Promise.race([pending, aborted.promise])
+  } finally {
+    signal.removeEventListener("abort", stop)
   }
-  return controller.signal
 }
 
 // ── per-host rate limiting (opt-in via HttpOptions.rateLimit) ────────────────
@@ -194,27 +206,45 @@ function hostOf(url: string): string | undefined {
  * idle window returns immediately; each subsequent one is held until
  * `minIntervalMs` after the previous request began.
  */
-function pace(host: string, minIntervalMs: number): Promise<void> {
+function pace(host: string, minIntervalMs: number, signal?: AbortSignal): Promise<void> {
   const state = throttleState()
   const ready = state.pace.get(host) ?? Promise.resolve()
-  state.pace.set(
-    host,
-    ready.then(() => sleep(minIntervalMs)),
+  const admitted = wait(ready, signal)
+  // A cancelled queued request adds no cooldown. Later requests still wait
+  // for the preceding actual admission, preserving the host's start spacing.
+  const next = admitted.then(
+    () => sleep(minIntervalMs),
+    () => ready,
   )
-  return ready
+  state.pace.set(host, next)
+  void next.then(() => {
+    if (state.pace.get(host) === next) state.pace.delete(host)
+  })
+  return admitted
 }
 
 /** Take an in-flight slot for this host, waiting if `maxConcurrent` is reached. */
-function acquire(host: string, maxConcurrent: number): Promise<void> {
+function acquire(host: string, maxConcurrent: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const state = throttleState()
   const active = state.active.get(host) ?? 0
   if (active < maxConcurrent) {
     state.active.set(host, active + 1)
     return Promise.resolve()
   }
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     const queue = state.waiters.get(host) ?? []
-    queue.push(resolve)
+    const admit = () => {
+      signal?.removeEventListener("abort", stop)
+      resolve()
+    }
+    const stop = () => {
+      const index = queue.indexOf(admit)
+      if (index !== -1) queue.splice(index, 1)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener("abort", stop, { once: true })
+    queue.push(admit)
     state.waiters.set(host, queue)
   })
 }
@@ -229,12 +259,12 @@ function release(host: string): void {
 }
 
 /** Apply the optional per-host throttle; returns a `release` to call when done. */
-async function throttle(url: string, limit?: RateLimit): Promise<() => void> {
+async function throttle(url: string, limit?: RateLimit, signal?: AbortSignal): Promise<() => void> {
   const host = hostOf(url)
   if (!host || !limit) return () => {}
-  if (limit.minIntervalMs && limit.minIntervalMs > 0) await pace(host, limit.minIntervalMs)
+  if (limit.minIntervalMs && limit.minIntervalMs > 0) await pace(host, limit.minIntervalMs, signal)
   if (limit.maxConcurrent && limit.maxConcurrent > 0) {
-    await acquire(host, limit.maxConcurrent)
+    await acquire(host, limit.maxConcurrent, signal)
     return () => release(host)
   }
   return () => {}
@@ -247,6 +277,7 @@ async function throttle(url: string, limit?: RateLimit): Promise<() => void> {
 export async function request(url: string, opts: HttpOptions = {}) {
   opts.signal?.throwIfAborted()
   await Network.assertAllowed(url)
+  opts.signal?.throwIfAborted()
   const method = (opts.method ?? "GET").toUpperCase()
   const timeout = opts.timeout ?? DEFAULT_TIMEOUT
   const retries = opts.retries ?? DEFAULT_RETRIES
@@ -269,10 +300,11 @@ export async function request(url: string, opts: HttpOptions = {}) {
   }
   const { resolveAddresses, ...fetchOptions } = opts
 
-  const done = await throttle(url, opts.rateLimit)
+  const done = await throttle(url, opts.rateLimit, opts.signal)
   try {
     let lastError: unknown
     for (let attempt = 0; attempt <= retries; attempt++) {
+      opts.signal?.throwIfAborted()
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeout)
       const signal = combineSignals(controller.signal, opts.signal)
@@ -291,7 +323,7 @@ export async function request(url: string, opts: HttpOptions = {}) {
         if (!res.ok && isRetryable(res.status) && attempt < retries) {
           const backoff = backoffMs(res, attempt)
           clearTimeout(timer)
-          await sleep(backoff)
+          await sleep(backoff, opts.signal)
           continue
         }
         if (!res.ok) {
@@ -340,7 +372,7 @@ export async function request(url: string, opts: HttpOptions = {}) {
         if (err instanceof HttpStatusError) throw err
         if (err instanceof SourceResponseError || err instanceof SyntaxError) throw err
         if (attempt < retries) {
-          await sleep(backoffMs(undefined, attempt))
+          await sleep(backoffMs(undefined, attempt), opts.signal)
           continue
         }
       }

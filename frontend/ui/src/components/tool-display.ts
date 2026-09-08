@@ -29,6 +29,11 @@ export function stripRedactedReasoning(text: string): string {
   return visible.trim() ? visible : ""
 }
 
+/** Private provider continuation is evidence of a step, never displayable prose. */
+export function privateReasoningOnly(text: string): boolean {
+  return text.includes("[REDACTED]") && !stripRedactedReasoning(text)
+}
+
 const reasoningHeading = /^[\p{L}\p{N} ,'/()_&:–—-]+$/u
 const reasoningStatus =
   /^(?:planning|preparing|retrieving|exploring|inspecting|testing|verifying|checking|reviewing|analyzing|evaluating|designing|building|running|confirming|adjusting|patching|restarting|summarizing|finalizing|thinking|considering next steps)$/i
@@ -524,7 +529,17 @@ export function writtenFiles(
         part.tool === "edit" && diff && typeof diff === "object" && "file" in diff ? diff.file : metadata.filepath
       push(typeof canonical === "string" ? canonical : options?.canonicalOnly ? undefined : input.filePath)
     }
-    if (options?.canonicalOnly && part.tool !== "apply_patch") continue
+    for (const file of Array.isArray(metadata.outputFiles) ? metadata.outputFiles : []) {
+      if (
+        !file ||
+        typeof file !== "object" ||
+        !("path" in file) ||
+        typeof file.path !== "string" ||
+        !absolute.test(file.path)
+      )
+        continue
+      push(options?.resolve ? options.resolve(file.path) : file.path)
+    }
     if (["notebook", "python", "r", "rkernel"].includes(part.tool ?? "")) {
       for (const file of Array.isArray(metadata.files) ? metadata.files : []) push(file)
     }
@@ -537,6 +552,19 @@ export function writtenFiles(
     for (const change of changes) {
       if (!change || typeof change !== "object") continue
       const record = change as Record<string, unknown>
+      if (record.type === "delete" || record.movePath) {
+        const removed =
+          typeof record.filePath === "string"
+            ? options?.resolve
+              ? options.resolve(record.filePath)
+              : record.filePath
+            : undefined
+        if (removed) {
+          seen.delete(removed)
+          const index = files.indexOf(removed)
+          if (index >= 0) files.splice(index, 1)
+        }
+      }
       if (record.type === "delete") continue
       push(record.movePath ?? record.filePath)
     }

@@ -1,3 +1,4 @@
+import { sessionReceipts } from "./session-receipts"
 import {
   batch,
   createComputed,
@@ -166,6 +167,7 @@ export default function Layout(props: ParentProps) {
               {iife(() => {
                 const sync = useSync()
                 const sdk = useSDK()
+                const receipts = sessionReceipts(sdk.request)
 
                 const respond = (input: {
                   sessionID: string
@@ -283,6 +285,8 @@ export default function Layout(props: ParentProps) {
                     onNavigateToSession={navigateToSession}
                     onOpenFile={openFile}
                     onOpenArtifact={openArtifact}
+                    onLoadComputeJob={receipts.job}
+                    onResolveFileReceipts={receipts.files}
                     onSaveArtifact={saveArtifact}
                   >
                     <MarkdownImages

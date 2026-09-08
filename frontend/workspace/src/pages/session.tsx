@@ -1,3 +1,4 @@
+import { delegatedAssignment } from "./session-delegation"
 import {
   createEffect,
   createMemo,
@@ -513,6 +514,14 @@ export default function Page(): JSX.Element {
   // stay hidden until the user restores them or sends a new message (which
   // makes the revert permanent server-side).
   const activeSession = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  createEffect(() => {
+    const parent = activeSession()?.parentID
+    if (parent) void sync.session.sync(parent).catch(() => {})
+  })
+  const assignment = createMemo(() => {
+    const session = activeSession()
+    return delegatedAssignment(session, sync.data.message[session?.parentID ?? ""] ?? [], sync.data.part)
+  })
   const childSessions = createMemo(() => {
     const parent = activeSession()?.parentID
     if (!parent) return []
@@ -562,7 +571,13 @@ export default function Page(): JSX.Element {
   const contextSubscription = sdk.event.on("session.context", (event) => {
     const id = event.properties.sessionID
     const stored = sync.data.message[id] ?? []
-    setEstimates((current) => ({ ...current, [id]: estimate(stored, event.properties.total) }))
+    setEstimates((current) => ({
+      ...current,
+      [id]: estimate(stored, event.properties.total, {
+        total: event.properties.total,
+        tokens: event.properties.tokens,
+      }),
+    }))
   })
   onCleanup(contextSubscription)
   const contextSample = createMemo(() => {
@@ -1222,9 +1237,13 @@ export default function Page(): JSX.Element {
                           <div class="w-full px-4 md:px-6 md:max-w-200 md:mx-auto">
                             <div class="min-h-12 py-1.5 flex items-center gap-2 border-b border-border-weak-base">
                               <div class="min-w-0 flex-1">
-                                <div class="text-[10px] tracking-[0.04em] text-text-weaker">Delegated agent</div>
+                                <div class="text-[10px] tracking-[0.04em] text-text-weaker">
+                                  {assignment()?.phase
+                                    ? `${assignment()!.phase.charAt(0).toUpperCase()}${assignment()!.phase.slice(1)} agent`
+                                    : "Delegated agent"}
+                                </div>
                                 <div class="truncate text-xs font-medium text-text-base">
-                                  {activeSession()?.title?.trim() || "Research task"}
+                                  {assignment()?.description || activeSession()?.title?.trim() || "Research task"}
                                 </div>
                               </div>
                               <div
