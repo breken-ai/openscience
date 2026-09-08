@@ -5,8 +5,10 @@ import { Bus } from "../../src/bus"
 import { LSP } from "../../src/lsp"
 import { Instance } from "../../src/project/instance"
 import { tmpdir, trustProject } from "../fixture/fixture"
+import { processFailures } from "../fixture/process-failures"
 
 test("an exited LSP stays visible as an error and retries only after explicit reset", async () => {
+  using processes = processFailures()
   await using fixture = await tmpdir({
     config: {
       lsp: { receipt: { command: [process.execPath, "server.cjs"], extensions: [".lsp-status"] } },
@@ -45,6 +47,9 @@ ${fake}`,
         await LSP.touchFile(source)
         expect(await LSP.status()).toEqual([{ id: "receipt", name: "receipt", root: "", status: "connected" }])
         expect(await fs.readFile(attempts, "utf8")).toBe("attempt\nattempt\n")
+      } catch (error) {
+        processes.report()
+        throw error
       } finally {
         unsubscribe()
         await LSP.dispose()
@@ -55,6 +60,7 @@ ${fake}`,
 })
 
 test("resetting an initializing LSP does not resurrect an error from the old generation", async () => {
+  using processes = processFailures()
   await using fixture = await tmpdir({
     config: { lsp: { pending: { command: [process.execPath, "pending.cjs"], extensions: [".lsp-pending"] } } },
   })
@@ -76,6 +82,9 @@ test("resetting an initializing LSP does not resurrect an error from the old gen
         await LSP.dispose()
         await pending
         expect(await LSP.status()).toEqual([])
+      } catch (error) {
+        processes.report()
+        throw error
       } finally {
         await LSP.dispose()
         await pending

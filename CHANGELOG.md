@@ -26,6 +26,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 - Return saved, formatted file contents and hashes in patch receipts. Use guarded
   atomic replacement on macOS and Linux, preserve concurrent edits during rollback,
   and honor revoked or read-only filesystem grants when trashing/restoring files.
+- Preserve Windows drive letters and colons in patch paths, and handle Windows
+  environment key casing consistently without admitting host credentials.
 - Report failed language-server startup through diagnostics status without retrying
   on every read, and include document tokens in estimated context composition.
 - Clarify environment readiness, nested test-process verification and protected

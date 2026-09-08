@@ -8,6 +8,7 @@ import { Format } from "../../src/format"
 import { Instance } from "../../src/project/instance"
 import { SafeDirectoryIO } from "../../src/file/safe-directory-io"
 import { tmpdir, trustProject } from "../fixture/fixture"
+import { processFailures } from "../fixture/process-failures"
 
 const context = {
   sessionID: "test",
@@ -21,6 +22,7 @@ const context = {
 }
 
 test("patch results bind actual formatter output while permissions retain the proposal", async () => {
+  using processes = processFailures()
   await using fixture = await tmpdir({
     config: {
       lsp: false,
@@ -70,6 +72,9 @@ test("patch results bind actual formatter output while permissions retain the pr
       }
       await Instance.dispose()
     },
+  }).catch((error) => {
+    processes.report()
+    throw error
   })
 })
 

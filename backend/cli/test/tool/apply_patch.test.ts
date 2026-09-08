@@ -174,7 +174,7 @@ describe("tool.apply_patch freeform", () => {
         expect(await fs.readFile(path.join(fixture.path, "nested", "new.txt"), "utf-8")).toBe("created\n")
         expect(await fs.readFile(modifyPath, "utf-8")).toBe("line1\nchanged\n")
         await expect(fs.readFile(deletePath, "utf-8")).rejects.toThrow()
-        expect(result.output).toContain("A nested/new.txt")
+        expect(result.output).toContain(`A ${path.join("nested", "new.txt")}`)
         expect(await FileTrash.list(Instance.project.id)).toHaveLength(1)
       },
     })
@@ -227,18 +227,29 @@ describe("tool.apply_patch freeform", () => {
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
-        const target = path.join(fixture.path, "delete.txt")
-        await fs.writeFile(target, "obsolete\n", "utf8")
-        const result = await execute({ patchText: "*** Begin Patch\n*** Delete File: delete.txt\n*** End Patch" }, ctx)
+        try {
+          const target = path.join(fixture.path, "delete.txt")
+          await fs.writeFile(target, "obsolete\n", "utf8")
+          const result = await execute(
+            { patchText: "*** Begin Patch\n*** Delete File: delete.txt\n*** End Patch" },
+            ctx,
+          )
 
-        expect(calls).toHaveLength(1)
-        expect(calls[0]?.metadata.files).toMatchObject([{ type: "delete", before: "obsolete\n", after: "" }])
-        expect(result.metadata.trash).toHaveLength(1)
-        expect(result.output).toContain("Recoverable for 30 days: ftr_")
-        await expect(fs.readFile(target)).rejects.toThrow()
-        expect(await FileTrash.list(Instance.project.id)).toMatchObject([
-          { id: result.metadata.trash[0]?.id, originalPath: target, state: "trash" },
-        ])
+          expect(calls).toHaveLength(1)
+          expect(calls[0]?.metadata.files).toMatchObject([{ type: "delete", before: "obsolete\n", after: "" }])
+          expect(result.metadata.trash).toHaveLength(1)
+          expect(result.output).toContain("Recoverable for 30 days: ftr_")
+          await expect(fs.readFile(target)).rejects.toThrow()
+          expect(await FileTrash.list(Instance.project.id)).toMatchObject([
+            { id: result.metadata.trash[0]?.id, originalPath: target, state: "trash" },
+          ])
+        } catch (error) {
+          // Bun can suppress the original Windows failure if fixture removal also fails.
+          console.error("deletes one file into recoverable trash", error)
+          throw error
+        } finally {
+          await Instance.dispose()
+        }
       },
     })
   })
@@ -265,7 +276,7 @@ describe("tool.apply_patch freeform", () => {
 
         const moveFile = permissionCall.metadata.files[0]
         expect(moveFile.type).toBe("move")
-        expect(moveFile.relativePath).toBe("renamed/dir/name.txt")
+        expect(moveFile.relativePath).toBe(path.join("renamed", "dir", "name.txt"))
         expect(moveFile.movePath).toBe(path.join(fixture.path, "renamed/dir/name.txt"))
         expect(moveFile.before).toBe("old content\n")
         expect(moveFile.after).toBe("new content\n")
@@ -342,18 +353,26 @@ describe("tool.apply_patch freeform", () => {
     await Instance.provide({
       directory: fixture.path,
       fn: async () => {
-        const original = path.join(fixture.path, "old", "name.txt")
-        await fs.mkdir(path.dirname(original), { recursive: true })
-        await fs.writeFile(original, "old content\n", "utf-8")
+        try {
+          const original = path.join(fixture.path, "old", "name.txt")
+          await fs.mkdir(path.dirname(original), { recursive: true })
+          await fs.writeFile(original, "old content\n", "utf-8")
 
-        const patchText =
-          "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
+          const patchText =
+            "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n-old content\n+new content\n*** End Patch"
 
-        await execute({ patchText }, ctx)
+          await execute({ patchText }, ctx)
 
-        const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
-        await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
-        expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
+          const moved = path.join(fixture.path, "renamed", "dir", "name.txt")
+          await expect(fs.readFile(original, "utf-8")).rejects.toThrow()
+          expect(await fs.readFile(moved, "utf-8")).toBe("new content\n")
+        } catch (error) {
+          // Bun can suppress the original Windows failure if fixture removal also fails.
+          console.error("moves file to a new directory", error)
+          throw error
+        } finally {
+          await Instance.dispose()
+        }
       },
     })
   })
@@ -829,7 +848,7 @@ describe("tool.apply_patch legacy session authority", () => {
         await expect(fs.readFile(obsolete, "utf-8")).rejects.toThrow()
         await expect(fs.readFile(renamed, "utf-8")).rejects.toThrow()
         expect(await fs.readFile(path.join(fixture.path, "plans", "archive", "renamed.md"), "utf-8")).toBe("kept\n")
-        expect(result.output).toContain("D plans/obsolete.md")
+        expect(result.output).toContain(`D ${path.join("plans", "obsolete.md")}`)
         expect(await FileTrash.list(Instance.project.id)).toHaveLength(2)
       },
     })

@@ -1476,9 +1476,19 @@ export namespace OpenScience {
     return result
   }
 
-  export function filterControlPlaneEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-    const result: Record<string, string> = {}
+  export function filterControlPlaneEnv(
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform = process.platform,
+  ): Record<string, string> {
+    // Windows names are case-insensitive, but Object.entries preserves their
+    // spelling. Normalize before both denial and allowlisting, including empty
+    // overrides, so PATH/Path cannot produce ambiguous spawn environments.
+    const normalized: NodeJS.ProcessEnv = {}
     for (const [key, value] of Object.entries(env)) {
+      normalized[platform === "win32" ? key.toUpperCase() : key] = value
+    }
+    const result: Record<string, string> = {}
+    for (const [key, value] of Object.entries(normalized)) {
       if (!value || CONTROL_PLANE_ENV_KEYS.has(key)) continue
       if (CONTROL_PLANE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
       result[key] = value
@@ -1486,9 +1496,12 @@ export namespace OpenScience {
     return result
   }
 
-  export function filterEnvForSubprocess(env: NodeJS.ProcessEnv): Record<string, string> {
+  export function filterEnvForSubprocess(
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform = process.platform,
+  ): Record<string, string> {
     const result: Record<string, string> = {}
-    for (const [key, value] of Object.entries(filterControlPlaneEnv(env))) {
+    for (const [key, value] of Object.entries(filterControlPlaneEnv(env, platform))) {
       if (isAtlasManagedKey(value) || managedProxyPath(value)) continue
       const safe = SAFE_ENV_PREFIXES.some((prefix) => (prefix.endsWith("_") ? key.startsWith(prefix) : key === prefix))
       if (safe || SAFE_ENV_KEYS.has(key)) result[key] = value
@@ -1496,9 +1509,12 @@ export namespace OpenScience {
     return normalizeByokRouting(result)
   }
 
-  export function filterEnvForKernel(env: NodeJS.ProcessEnv): Record<string, string> {
+  export function filterEnvForKernel(
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform = process.platform,
+  ): Record<string, string> {
     const result: Record<string, string> = {}
-    for (const [key, value] of Object.entries(filterControlPlaneEnv(env))) {
+    for (const [key, value] of Object.entries(filterControlPlaneEnv(env, platform))) {
       const runtime =
         SAFE_ENV_PREFIXES.some((prefix) => (prefix.endsWith("_") ? key.startsWith(prefix) : key === prefix)) ||
         KERNEL_RUNTIME_KEYS.has(key)
@@ -1513,14 +1529,21 @@ export namespace OpenScience {
    * overlay and is registered in the credential process ledger without an
    * overlay stamp. Callers that need the overlay use withSubprocessEnv, which
    * reports it. */
-  export function kernelEnv(env: NodeJS.ProcessEnv = process.env, overlay: NodeJS.ProcessEnv = {}) {
-    return filterControlPlaneEnv({
-      ...filterEnvForKernel(env),
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: os.devNull,
-      GIT_TERMINAL_PROMPT: "0",
-      ...overlay,
-    })
+  export function kernelEnv(
+    env: NodeJS.ProcessEnv = process.env,
+    overlay: NodeJS.ProcessEnv = {},
+    platform: NodeJS.Platform = process.platform,
+  ) {
+    return filterControlPlaneEnv(
+      {
+        ...filterEnvForKernel(env, platform),
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_TERMINAL_PROMPT: "0",
+        ...overlay,
+      },
+      platform,
+    )
   }
 
   export function kernelSensitivePaths() {

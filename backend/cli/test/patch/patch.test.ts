@@ -17,6 +17,36 @@ describe("Patch namespace", () => {
   })
 
   describe("parsePatch", () => {
+    test.each([String.raw`C:\research\results`, "C:/research/results", "results:verified"])(
+      "preserves the entire path after each header delimiter: %s",
+      (directory) => {
+        const result = Patch.parsePatch(
+          [
+            "*** Begin Patch",
+            `*** Add File: ${directory}/new.txt`,
+            "+created",
+            `*** Delete File: ${directory}/obsolete.txt`,
+            `*** Update File: ${directory}/old.txt`,
+            `*** Move to: ${directory}/renamed.txt`,
+            "@@",
+            "-before",
+            "+after",
+            "*** End Patch",
+          ].join("\n"),
+        )
+        expect(result.hunks).toEqual([
+          { type: "add", path: `${directory}/new.txt`, contents: "created" },
+          { type: "delete", path: `${directory}/obsolete.txt` },
+          {
+            type: "update",
+            path: `${directory}/old.txt`,
+            move_path: `${directory}/renamed.txt`,
+            chunks: [{ old_lines: ["before"], new_lines: ["after"] }],
+          },
+        ])
+      },
+    )
+
     test("should parse simple add file patch", () => {
       const patchText = `*** Begin Patch
 *** Add File: test.txt
