@@ -1620,7 +1620,7 @@ export namespace ComputeJobs {
   ): { argv: string[]; scheduler: Scheduler; label: string } {
     if (!host) {
       return {
-        argv: [Shell.acceptable(), "-lc", input.command],
+        argv: [Shell.posix(), "-lc", input.command],
         scheduler: "none",
         label: "This computer",
       }
@@ -1699,7 +1699,7 @@ export namespace ComputeJobs {
       ? { ...authority.sandbox, enabled: true, network: "deny" as const }
       : authority.sandbox
     const planned = Sandbox.wrapArgv({
-      file: Shell.acceptable(),
+      file: Shell.posix(),
       args: (selectedPath) => {
         const value = quote(selectedPath ?? runtime?.env.PATH ?? process.env.PATH ?? "")
         // Native Windows PATH uses semicolons and drive letters. Git Bash's

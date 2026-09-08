@@ -8,6 +8,7 @@ import { KernelEnvironmentMutation } from "../../src/science/kernel/environment-
 import { Config } from "../../src/config/config"
 import { BashTool } from "../../src/tool/bash"
 import { Sandbox } from "../../src/sandbox/sandbox"
+import { Shell } from "../../src/shell/shell"
 import { executionSession, tmpdir } from "../fixture/fixture"
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
@@ -122,7 +123,7 @@ test.skipIf(process.platform === "win32" || !alternate)(
         const job = await ComputeJobs.start(
           {
             name: "Selected interpreter identity",
-            command: `python3 -c ${quote('import sys, json; print(json.dumps({"version":sys.version.split()[0],"executable":sys.executable}))')}`,
+            command: `printf '/fixture startup diagnostic\\n' >&2; python3 -c ${quote('import sys, json; json.dump({"version":sys.version.split()[0],"executable":sys.executable},open("runtime-version.json","w"))')}`,
             target: { kind: "local" },
             sessionID: session.id,
           },
@@ -130,8 +131,12 @@ test.skipIf(process.platform === "win32" || !alternate)(
         )
         try {
           const result = await ComputeJobs.wait(job.id, { ...options, timeout: 5_000 })
-          expect(result.status).toBe("succeeded")
-          const actual = JSON.parse((await ComputeJobs.log(job.id, options)).trim())
+          const log = await ComputeJobs.log(job.id, options)
+          expect(result.status, log).toBe("succeeded")
+          expect(log).toContain("/fixture startup diagnostic")
+          const receipt = Bun.file(path.join(workspace, "runtime-version.json"))
+          expect(await receipt.exists(), log).toBe(true)
+          const actual = await receipt.json()
           expect(actual.version).toBe(alternate.version)
           expect(actual.version).not.toBe(hostVersion)
           expect(result.reproducibility?.python).toBe(`Python ${actual.version}`)
@@ -172,7 +177,7 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
         const job = await ComputeJobs.start(
           {
             name: "Windows selected interpreter",
-            command: `python -c ${quote('import sys,json; print(json.dumps({"executable":sys.executable,"version":sys.version.split()[0]}))')}`,
+            command: `printf '/fixture startup diagnostic\\n' >&2; python -c ${quote('import sys,json; json.dump({"executable":sys.executable,"version":sys.version.split()[0]},open("runtime-windows.json","w"))')}`,
             target: { kind: "local" },
             sessionID: session.id,
           },
@@ -182,7 +187,19 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
           const result = await ComputeJobs.wait(job.id, { ...options, timeout: 5_000 })
           const log = await ComputeJobs.log(job.id, options)
           expect(result.status, log).toBe("succeeded")
-          const actual = JSON.parse(log.trim())
+          const receipt = Bun.file(path.join(workspace, "runtime-windows.json"))
+          expect(
+            await receipt.exists(),
+            JSON.stringify({
+              shell: Shell.posix(),
+              terminalShell: Shell.acceptable(),
+              git: Bun.which("git"),
+              job: result.status,
+              log,
+            }),
+          ).toBe(true)
+          expect(log).toContain("/fixture startup diagnostic")
+          const actual = await receipt.json()
           expect(await fs.realpath(actual.executable)).toBe(
             await fs.realpath(path.join(prefix, "Scripts", "python.exe")),
           )
@@ -211,7 +228,16 @@ for (const enabled of [false, true]) {
       const prefix = path.join(tmp.path, ".venv")
       const prepared = Bun.spawnSync([host, "-m", "venv", "--without-pip", prefix])
       expect(prepared.exitCode, prepared.stderr.toString()).toBe(0)
+      // Linux venvs can make python a relative symlink to python3. Preserve
+      // that selected entrypoint before removing only the optional alias.
+      const selected = path.join(prefix, "bin", "python")
+      const target = await fs.realpath(selected)
+      await fs.rm(selected)
+      await fs.symlink(target, selected)
       await fs.rm(path.join(prefix, "bin", "python3"), { force: true })
+      const direct = Bun.spawnSync([selected, "-c", "import sys; print(sys.prefix)"])
+      expect(direct.exitCode, direct.stderr.toString()).toBe(0)
+      expect(direct.stdout.toString().trim()).toBe(prefix)
       const previous = await Config.trustedSandbox()
       await Config.setSandbox({ enabled, onUnavailable: "error" })
       try {
@@ -221,11 +247,12 @@ for (const enabled of [false, true]) {
             const session = await executionSession()
             const workspace = await SessionFilesystem.workspace(session.id)
             const options = { root: path.join(tmp.path, ".jobs"), projectDirectory: tmp.path, workspace }
-            const command = `python3 -c ${quote('import sys,json; print(json.dumps({"prefix":sys.prefix,"executable":sys.executable}))')}`
+            const command = (file: string) =>
+              `printf '/fixture startup diagnostic\\n' >&2; python3 -c ${quote(`import sys,json; json.dump({"prefix":sys.prefix,"executable":sys.executable},open(${JSON.stringify(file)},"w"))`)}`
             const shell = await (
               await BashTool.init()
             ).execute(
-              { command, description: "Check selected venv" },
+              { command: command("bash-venv.json"), description: "Check selected venv" },
               {
                 sessionID: session.id,
                 messageID: "msg_venv",
@@ -238,16 +265,27 @@ for (const enabled of [false, true]) {
               },
             )
             expect(shell.metadata.exit, shell.output).toBe(0)
-            expect(JSON.parse(shell.output.trim())).toEqual({ prefix, executable: path.join(prefix, "bin", "python") })
+            expect(shell.output).toContain("/fixture startup diagnostic")
+            const shellReceipt = Bun.file(path.join(workspace, "bash-venv.json"))
+            expect(await shellReceipt.exists(), shell.output).toBe(true)
+            expect(await shellReceipt.json(), shell.output).toEqual({ prefix, executable: selected })
             const job = await ComputeJobs.start(
-              { name: "Selected venv prefix", command, target: { kind: "local" }, sessionID: session.id },
+              {
+                name: "Selected venv prefix",
+                command: command("compute-venv.json"),
+                target: { kind: "local" },
+                sessionID: session.id,
+              },
               options,
             )
             try {
               const result = await ComputeJobs.wait(job.id, { ...options, timeout: 5_000 })
               const log = await ComputeJobs.log(job.id, options)
               expect(result.status, log).toBe("succeeded")
-              expect(JSON.parse(log.trim())).toEqual({ prefix, executable: path.join(prefix, "bin", "python") })
+              expect(log).toContain("/fixture startup diagnostic")
+              const receipt = Bun.file(path.join(workspace, "compute-venv.json"))
+              expect(await receipt.exists(), log).toBe(true)
+              expect(await receipt.json(), log).toEqual({ prefix, executable: selected })
               expect(result.reproducibility?.execution_environment?.python?.executable).toBe(
                 path.join(prefix, "bin", "python"),
               )

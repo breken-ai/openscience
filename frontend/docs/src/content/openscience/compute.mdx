@@ -20,6 +20,10 @@ Local compute using the default Python measures that binary in the admitted exec
 Remote submissions label local source metadata as belonging to the submitter;
 an unmeasured remote interpreter is left unknown.
 
+Local compute on Windows requires Git Bash. If discovery fails, install Git for
+Windows or set `OPENSCIENCE_GIT_BASH_PATH` to its installed `bash.exe`. OpenScience
+reports a missing or incompatible shell before dispatching a POSIX job script.
+
 Try a small task first:
 
 ```text
