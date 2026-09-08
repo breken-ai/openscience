@@ -219,7 +219,7 @@ export namespace ToolRegistry {
   }
 
   const ARTIFACT_TOOL_ID = "artifact"
-  const ARTIFACT_AGENTS = ["research", "biology", "ml", "researchagent-test"]
+  const ARTIFACT_AGENTS = ["research", "biology", "physics", "ml", "explore", "execute", "researchagent-test"]
 
   const COMPUTE_AGENTS = ["research", "biology", "physics", "ml"]
 

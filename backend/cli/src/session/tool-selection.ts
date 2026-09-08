@@ -8,6 +8,7 @@ export namespace ToolSelection {
     return agent === "research" || agent === THIN_RESEARCH_AGENT
   }
   const core = new Set([
+    "artifact",
     "invalid",
     "question",
     "bash",
@@ -218,7 +219,6 @@ export namespace ToolSelection {
     if (codeTools.has(tool)) return code.test(text)
     if (python.has(tool)) return analysis || /\bpython\b|\bnotebook\b/i.test(text)
     if (r.has(tool)) return /\bR\b|\br (?:kernel|language)\b|\brstudio\b/.test(text)
-    if (tool === "artifact") return writing || analysis || /\b(?:deliverable|result)\b/i.test(text)
     if (tool === "generate_image")
       return /\b(?:diagrams?|figures?|graphics?|illustrations?|images?|posters?|schematics?|slides?|visuals?)\b/i.test(
         text,

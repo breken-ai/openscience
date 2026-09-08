@@ -4,7 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { TaskAttempt } from "../../src/tool/task-attempt"
-import { TaskTool } from "../../src/tool/task"
+import { normalizeTaskAttemptInput, TaskTool } from "../../src/tool/task"
 import { tmpdir } from "../fixture/fixture"
 
 const report =
@@ -15,6 +15,8 @@ async function retained(input: {
   stopReason?: string
   finish?: string
   error?: MessageV2.Assistant["error"]
+  narrationOnly?: boolean
+  literalReplay?: boolean
 }) {
   await using tmp = await tmpdir({ git: true })
   return await Instance.provide({
@@ -25,9 +27,12 @@ async function retained(input: {
       const userID = Identifier.ascending("message")
       const messageID = Identifier.ascending("message")
       const callID = `call_${crypto.randomUUID()}`
+      const original = "Document this historical literal example. ".repeat(30)
       const params = {
         description: "Review retained sources",
-        prompt: "Return the source comparison.",
+        prompt: input.literalReplay
+          ? original.slice(0, 200) + `…[+${original.length - 200} chars]`
+          : "Return the source comparison.",
         subagent_type: "explore" as const,
       }
       const model = { providerID: "offline-fixture", modelID: "no-provider-called" }
@@ -153,6 +158,22 @@ async function retained(input: {
         text: report,
         time: { start: 8, end: 9 },
       })
+      if (input.narrationOnly) {
+        await Session.updatePart({
+          ...tools[1],
+          id: Identifier.ascending("part"),
+          messageID: finalID,
+          callID: "call_after_narration",
+        })
+        await Session.updateMessage({
+          ...base,
+          id: Identifier.ascending("message"),
+          sessionID: child.id,
+          parentID: attempt.childMessageID,
+          finish: "stop",
+          time: { created: 10, completed: 11 },
+        })
+      }
       await Session.flushPendingParts(child.id)
       const before = await Session.messages({ sessionID: child.id })
       try {
@@ -163,7 +184,7 @@ async function retained(input: {
           callID,
           agent: "research",
           abort: new AbortController().signal,
-          messages: [],
+          messages: [] as MessageV2.WithParts[],
           metadata: () => {},
           ask: async () => {},
           extra: { effort: "normal", bypassAgentCheck: true },
@@ -171,8 +192,37 @@ async function retained(input: {
         const result = await task.execute(params, ctx)
         expect(await Session.messages({ sessionID: child.id })).toEqual(before)
         expect((await TaskAttempt.read(identity))?.previousMessageIDs).toEqual(previous)
+        if (input.literalReplay) {
+          ctx.messages.push({
+            info: { ...base, id: messageID, sessionID: parent.id, parentID: userID, time: { created: 2 } },
+            parts: [
+              {
+                ...tools[0],
+                sessionID: parent.id,
+                messageID,
+                tool: "write",
+                state: {
+                  status: "completed",
+                  input: { content: original },
+                  title: "Later sibling",
+                  output: "Saved",
+                  metadata: {},
+                  time: { start: 10, end: 11 },
+                },
+              },
+            ],
+          })
+          expect(() => normalizeTaskAttemptInput(params, parent.id, ctx.messages)).toThrow(
+            "shortened historical argument",
+          )
+        }
         const repeated = await task.execute(params, ctx)
         expect(repeated).toEqual(result)
+        if (input.literalReplay) {
+          await expect(task.execute({ ...params, prompt: "Changed assignment" }, ctx)).rejects.toThrow(
+            "changed arguments",
+          )
+        }
         expect(await Session.messages({ sessionID: child.id })).toEqual(before)
         return { result, tools }
       } finally {
@@ -234,4 +284,16 @@ test("provider failures preserve partial handoff text without claiming normal co
 test("recovering a first child turn preserves its empty baseline and final handoff", async () => {
   const { result } = await retained({ emptyBaseline: true })
   expect(result.metadata).toMatchObject({ handoff: report, outcome: "completed", failedToolCalls: 1 })
+})
+
+test("direct replay of a completed Task ignores later sibling preview evidence after verifying its fingerprint", async () => {
+  const { result } = await retained({ literalReplay: true })
+  expect(result.metadata).toMatchObject({ handoff: report, outcome: "completed" })
+})
+
+test("durable recovery marks pre-tool narration incomplete instead of returning it as final findings", async () => {
+  const { result } = await retained({ narrationOnly: true })
+  expect(result.metadata).toMatchObject({ outcome: "partial", stopReason: "empty_handoff" })
+  expect(result.output).toContain("ended without a textual handoff")
+  expect(result.output).not.toContain(report)
 })

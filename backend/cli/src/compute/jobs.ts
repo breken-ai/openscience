@@ -219,6 +219,8 @@ export namespace ComputeJobs {
     bun: z.string(),
     node: z.string(),
     python: z.string().optional(),
+    capture_scope: z.enum(["execution_host", "submitter"]).optional(),
+    execution_environment: KernelEnvironmentMutation.SubprocessEnvironment.optional(),
     git: z
       .object({
         repository: z.string().optional(),
@@ -467,6 +469,7 @@ export namespace ComputeJobs {
 
   type Launch = {
     argv: string[]
+    runtime?: Awaited<ReturnType<typeof KernelEnvironmentMutation.pythonSubprocessRuntime>>
     sandbox?: Job["sandbox"]
     temporary?: string
   }
@@ -1660,6 +1663,7 @@ export namespace ComputeJobs {
     host: Host | undefined,
     scope: Scope,
     authority: ExecutionAuthority.Decision,
+    runtime?: Launch["runtime"],
   ): Promise<Launch> {
     if (!host) await reattestLocalCapability(job, authority)
     const spec = command(job, host)
@@ -1689,18 +1693,24 @@ export namespace ComputeJobs {
     await fs.writeFile(exitOf(scope.root, job.id), "", { mode: 0o600 })
     // Generic local jobs share Bash's selected interpreter and package overlay.
     // Capability jobs already carry their exact attested runtime and command.
-    const runtime = job.capability_execution ? undefined : await KernelEnvironmentMutation.pythonSubprocessRuntime()
     // Set these after login-shell initialization too, which can reset PATH.
-    const initialize = runtime
-      ? `export PATH=${quote(runtime.env.PATH ?? process.env.PATH ?? "")}; export PYTHONPATH=${quote(runtime.env.PYTHONPATH)}; `
-      : ""
-    const wrapped = `${initialize}(${job.command}\n); code=$?; printf %s "$code" > ${quote(exitOf(scope.root, job.id))}; exit "$code"`
+    const wrapped = `(${job.command}\n); code=$?; printf %s "$code" > ${quote(exitOf(scope.root, job.id))}; exit "$code"`
     const sandboxOptions = job.capability_execution
       ? { ...authority.sandbox, enabled: true, network: "deny" as const }
       : authority.sandbox
     const planned = Sandbox.wrapArgv({
       file: Shell.acceptable(),
-      args: ["-lc", wrapped],
+      args: (selectedPath) => {
+        const value = quote(selectedPath ?? runtime?.env.PATH ?? process.env.PATH ?? "")
+        // Native Windows PATH uses semicolons and drive letters. Git Bash's
+        // login shell needs its POSIX spelling after startup resets PATH.
+        const restore =
+          process.platform === "win32"
+            ? `PATH=$(cygpath -up ${value}) || exit $?; export PATH; `
+            : `export PATH=${value}; `
+        return ["-lc", `${runtime ? `${restore}export PYTHONPATH=${quote(runtime.env.PYTHONPATH)}; ` : ""}${wrapped}`]
+      },
+      runtime: runtime ? { python: runtime.binary, path: runtime.env.PATH } : undefined,
       workspace: authority.writable,
       readable: [
         ...authority.readable,
@@ -1723,6 +1733,7 @@ export namespace ComputeJobs {
     }
     return {
       argv: [planned.file, ...planned.args],
+      runtime,
       temporary: planned.temporary,
       sandbox: {
         requested: sandboxOptions.enabled,
@@ -1739,20 +1750,27 @@ export namespace ComputeJobs {
     cwd: string,
     authority: ExecutionAuthority.Decision,
     partial = false,
+    runtime?: Launch["runtime"],
   ): Promise<string | undefined> {
     await currentAuthority(authority)
     const planned = Sandbox.wrapArgv({
       file: argv[0]!,
       args: argv.slice(1),
       workspace: authority.writable,
-      readable: authority.readable,
+      readable: [
+        ...authority.readable,
+        ...(runtime?.extraReadable ?? []),
+        ...(runtime?.binary ? [path.dirname(path.dirname(await fs.realpath(runtime.binary)))] : []),
+      ],
       unreadable: OpenScience.kernelSensitivePaths(),
       options: authority.sandbox,
     })
     try {
       const proc = Bun.spawn([planned.file, ...planned.args], {
         cwd,
-        env: OpenScience.kernelEnv(process.env),
+        env: runtime
+          ? KernelEnvironmentMutation.subprocessEnv(runtime, OpenScience.kernelEnv(process.env))
+          : OpenScience.kernelEnv(process.env),
         stdin: "ignore",
         stdout: "pipe",
         stderr: "ignore",
@@ -1957,16 +1975,23 @@ export namespace ComputeJobs {
     "Cargo.lock",
   ]
 
-  async function reproduce(job: Job, authority: ExecutionAuthority.Decision): Promise<Reproducibility> {
+  async function reproduce(
+    job: Job,
+    authority: ExecutionAuthority.Decision,
+    runtime?: Launch["runtime"],
+  ): Promise<Reproducibility> {
     const cwd = path.resolve(job.cwd ?? process.cwd())
+    const binary =
+      job.target.kind === "local" ? (job.capability_execution?.runtime_binary ?? runtime?.binary) : undefined
     const [repository, branch, commit, status, python, capturedLocks] = await Promise.all([
       output(["git", "remote", "get-url", "origin"], cwd, authority),
       output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd, authority),
       output(["git", "rev-parse", "HEAD"], cwd, authority),
       output(["git", "-c", "core.fsmonitor=false", "status", "--porcelain"], cwd, authority, true),
-      output(["python3", "--version"], cwd, authority),
+      runtime?.binary ? output([runtime.binary, "--version"], cwd, authority, false, runtime) : undefined,
       Promise.all(lockfiles.map((file) => fingerprint(cwd, file))),
     ])
+    const version = python?.match(/^Python ([0-9]+\.[0-9]+\.[0-9]+\S*)$/)?.[1]
     const git =
       repository || branch || commit || status !== undefined
         ? { repository, branch, commit, dirty: !!status }
@@ -1979,7 +2004,28 @@ export namespace ComputeJobs {
       arch: process.arch,
       bun: Bun.version,
       node: process.version,
-      python,
+      // A remote job's local source snapshot must never masquerade as the
+      // remote interpreter or host. No remote runtime probe is implied here.
+      capture_scope: job.target.kind === "local" ? "execution_host" : "submitter",
+      python: version ? `Python ${version}` : undefined,
+      execution_environment: {
+        target: job.target.kind,
+        ...(job.target.kind === "local" ? { cwd } : job.ssh ? { cwd: job.ssh.cwd } : {}),
+        ...(job.capability
+          ? { profile: `${job.capability.id}:${job.capability.profile}` }
+          : runtime
+            ? { profile: runtime.environmentName ?? "python" }
+            : {}),
+        ...(job.target.kind === "local"
+          ? {
+              python: {
+                role: job.capability_execution ? "capability" : "selected_default",
+                ...(binary ? { executable: binary } : {}),
+                ...(version ? { version } : {}),
+              },
+            }
+          : {}),
+      },
       git,
       lockfiles: capturedLocks.filter((item): item is Artifact => !!item),
       resources: job.resources,
@@ -2029,18 +2075,19 @@ export namespace ComputeJobs {
       cwd: job.cwd,
       codeState: job.reproducibility?.git,
       codeReason: job.target.kind === "ssh" ? "remote_unverified" : "not_captured",
-      host: job.reproducibility
-        ? {
-            platform: job.reproducibility.platform,
-            arch: job.reproducibility.arch,
-            runtimes: {
-              bun: job.reproducibility.bun,
-              node: job.reproducibility.node,
-              ...(job.reproducibility.python ? { python: job.reproducibility.python } : {}),
-            },
-          }
-        : undefined,
-      hostReason: job.target.kind === "ssh" ? "remote_unverified" : "not_captured",
+      host:
+        job.target.kind === "local" && job.reproducibility
+          ? {
+              platform: job.reproducibility.platform,
+              arch: job.reproducibility.arch,
+              runtimes: {
+                bun: job.reproducibility.bun,
+                node: job.reproducibility.node,
+                ...(job.reproducibility.python ? { python: job.reproducibility.python } : {}),
+              },
+            }
+          : undefined,
+      hostReason: job.target.kind !== "local" ? "remote_unverified" : "not_captured",
       status,
       outputs,
       createdAt: job.created_at,
@@ -2771,7 +2818,7 @@ export namespace ComputeJobs {
           })
           const proc = spawn(wrapped.file, wrapped.args, {
             cwd: host ? authority.workspace : job.cwd,
-            env,
+            env: launch.runtime ? KernelEnvironmentMutation.subprocessEnv(launch.runtime, env) : env,
             detached,
             windowsHide: true,
             stdio: ["ignore", output.fd, output.fd],
@@ -3733,9 +3780,11 @@ export namespace ComputeJobs {
         }
       }
     }
-    const reproducibility = host ? undefined : await reproduce(draft, authority)
+    const runtime =
+      !host && !draft.capability_execution ? await KernelEnvironmentMutation.pythonSubprocessRuntime() : undefined
+    const reproducibility = host ? undefined : await reproduce(draft, authority, runtime)
     await currentAuthority(authority)
-    const planned = await launch(draft, host, scope, authority).catch(async (error) => {
+    const planned = await launch(draft, host, scope, authority, runtime).catch(async (error) => {
       if (!host) await fs.rm(exitOf(scope.root, id), { force: true })
       throw error
     })

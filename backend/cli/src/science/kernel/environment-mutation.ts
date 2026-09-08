@@ -1,4 +1,5 @@
 import { Global } from "@/global"
+import { OpenScience } from "@/openscience"
 import { Instance } from "@/project/instance"
 import { ManagedEnvironments } from "@/science/kernel/environment-manager"
 import { pythonEnvironment } from "@/science/kernel/interpreter"
@@ -104,6 +105,43 @@ async function hostPython() {
 
 export namespace KernelEnvironmentMutation {
   export type Language = "python" | "r"
+
+  export const SubprocessEnvironment = z.object({
+    target: z.enum(["local", "ssh", "modal"]),
+    cwd: z.string().optional(),
+    profile: z.string().optional(),
+    python: z
+      .object({
+        role: z.enum(["selected_default", "capability"]),
+        executable: z.string().optional(),
+        version: z.string().optional(),
+      })
+      .optional()
+      .describe("Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured."),
+  })
+  export type SubprocessEnvironment = z.infer<typeof SubprocessEnvironment>
+
+  export function subprocessIdentity(runtime: KernelStartOptions, cwd: string): SubprocessEnvironment {
+    return {
+      target: "local",
+      cwd,
+      profile: runtime.environmentName ?? "python",
+      python: { role: "selected_default", ...(runtime.binary ? { executable: runtime.binary } : {}) },
+    }
+  }
+
+  /** Restore only resolver-owned Python paths after the ordinary subprocess
+   * filter. Reuse this final overlay for both the launched command and its
+   * runtime-version probe; arbitrary ambient PYTHONPATH remains excluded. */
+  export function subprocessEnv(runtime: Awaited<ReturnType<typeof pythonSubprocessRuntime>>, env: NodeJS.ProcessEnv) {
+    return {
+      ...OpenScience.filterEnvForSubprocess({ ...env, ...runtime.env }),
+      PYTHONPATH: runtime.env.PYTHONPATH,
+      GIT_CONFIG_NOSYSTEM: env.GIT_CONFIG_NOSYSTEM,
+      GIT_CONFIG_GLOBAL: env.GIT_CONFIG_GLOBAL,
+      GIT_TERMINAL_PROMPT: env.GIT_TERMINAL_PROMPT,
+    }
+  }
 
   export type Plan = {
     language: Language

@@ -57,6 +57,17 @@ keep their earlier conversation, while the heading identifies their active assig
 Stopping the lead also cancels its active delegated work, including workers preparing
 to start. A stopped task's saved files and recorded tool results remain available.
 
+Saved worker Results carry immutable artifact and version IDs back to the lead.
+The lead can read these versions without access to the worker's private scratch.
+Only the latest assistant message's text after its final tool call counts as the
+handoff; earlier progress text cannot make an unfinished worker look complete.
+An empty handoff remains incomplete, even if the worker saved files.
+
+Handoffs retain command receipt references and failures. A shell exit of zero
+describes the outer process; it does not establish that nested tests passed or
+that a scientific conclusion is valid. Those claims still need their actual
+test or evaluation evidence.
+
 The **Show reasoning and activity** control stays available during execution. Some
 providers return tool activity without readable reasoning; OpenScience indicates that
 state rather than presenting missing reasoning as an empty trace. A compute submission

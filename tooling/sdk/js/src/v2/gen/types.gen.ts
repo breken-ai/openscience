@@ -4769,6 +4769,20 @@ export type SettingsComputeJobsListResponses = {
       bun: string
       node: string
       python?: string
+      capture_scope?: "execution_host" | "submitter"
+      execution_environment?: {
+        target: "local" | "ssh" | "modal"
+        cwd?: string
+        profile?: string
+        /**
+         * Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.
+         */
+        python?: {
+          role: "selected_default" | "capability"
+          executable?: string
+          version?: string
+        }
+      }
       git?: {
         repository?: string
         branch?: string
@@ -5573,6 +5587,20 @@ export type SettingsComputeJobsStartResponses = {
       bun: string
       node: string
       python?: string
+      capture_scope?: "execution_host" | "submitter"
+      execution_environment?: {
+        target: "local" | "ssh" | "modal"
+        cwd?: string
+        profile?: string
+        /**
+         * Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.
+         */
+        python?: {
+          role: "selected_default" | "capability"
+          executable?: string
+          version?: string
+        }
+      }
       git?: {
         repository?: string
         branch?: string
@@ -6586,6 +6614,20 @@ export type SettingsComputeJobsRetryResponses = {
       bun: string
       node: string
       python?: string
+      capture_scope?: "execution_host" | "submitter"
+      execution_environment?: {
+        target: "local" | "ssh" | "modal"
+        cwd?: string
+        profile?: string
+        /**
+         * Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.
+         */
+        python?: {
+          role: "selected_default" | "capability"
+          executable?: string
+          version?: string
+        }
+      }
       git?: {
         repository?: string
         branch?: string
@@ -7345,6 +7387,20 @@ export type SettingsComputeJobsReleaseResponses = {
       bun: string
       node: string
       python?: string
+      capture_scope?: "execution_host" | "submitter"
+      execution_environment?: {
+        target: "local" | "ssh" | "modal"
+        cwd?: string
+        profile?: string
+        /**
+         * Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.
+         */
+        python?: {
+          role: "selected_default" | "capability"
+          executable?: string
+          version?: string
+        }
+      }
       git?: {
         repository?: string
         branch?: string
@@ -8100,6 +8156,20 @@ export type SettingsComputeJobsCancelResponses = {
       bun: string
       node: string
       python?: string
+      capture_scope?: "execution_host" | "submitter"
+      execution_environment?: {
+        target: "local" | "ssh" | "modal"
+        cwd?: string
+        profile?: string
+        /**
+         * Selected runtime, not proof that arbitrary shell code used Python. Missing fields were not measured.
+         */
+        python?: {
+          role: "selected_default" | "capability"
+          executable?: string
+          version?: string
+        }
+      }
       git?: {
         repository?: string
         branch?: string

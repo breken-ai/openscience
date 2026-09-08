@@ -11,6 +11,15 @@ Open **Customize → Compute** and check the Python and R starter setup. If eith
 
 The Python starter includes common analysis libraries such as NumPy, pandas, SciPy, and Matplotlib. The R starter includes tidyverse, ggplot2, and jsonlite. Additional tools may need a separate installation or account.
 
+Shell and local compute receipts identify the selected default Python separately
+from any measured version. A command can explicitly choose another interpreter,
+so this default is not proof of which Python an arbitrary shell command used.
+On Windows, `python` selects this default; an independently installed `python3`
+or an absolute executable path can select another interpreter.
+Local compute using the default Python measures that binary in the admitted execution environment.
+Remote submissions label local source metadata as belonging to the submitter;
+an unmeasured remote interpreter is left unknown.
+
 Try a small task first:
 
 ```text

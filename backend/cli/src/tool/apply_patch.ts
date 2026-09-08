@@ -1,4 +1,5 @@
 import z from "zod"
+import { PayloadIntegrity } from "./payload-integrity"
 import * as path from "path"
 import * as fs from "fs/promises"
 import crypto from "node:crypto"
@@ -592,6 +593,10 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           break
         }
       }
+    }
+
+    for (const change of fileChanges) {
+      PayloadIntegrity.assert({ content: change.newContent, before: change.oldContent, messages: ctx.messages })
     }
 
     // Permission describes the proposed edit. The result is captured separately

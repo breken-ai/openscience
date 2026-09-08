@@ -10,6 +10,9 @@ import type { Node, Run } from "@/science/provenance/store"
 import { Log } from "@/util/log"
 
 const log = Log.create({ service: "tool.artifact" })
+// A text window verifies the whole immutable blob. Keep repeated reads bounded;
+// larger datasets belong in the download/analysis path, not model context.
+const MAX_INLINE_BYTES = 8 * 1024 * 1024
 
 function result(title: string, output: string, metadata: Record<string, unknown> = {}) {
   return { title, output, metadata }
@@ -102,19 +105,94 @@ async function traceSavedArtifact(saved: ArtifactStore.Artifact, run?: Run) {
 
 export const ArtifactTool = Tool.define("artifact", {
   description:
-    "Save an important workspace file as a durable Result with a stable identity, immutable versions, and optional execution provenance. Empirical contract Results need provenance_id to pass completion. Keep drafts and large mutable working data in the workspace instead.",
-  parameters: z.object({
-    action: z.literal("save_file").describe("Save a workspace file as a durable Result"),
-    path: z.string().trim().min(1).max(10_000).describe("Workspace file path"),
-    summary: z.string().optional().describe("Concise user-facing Result title"),
-    provenance_id: z
-      .string()
-      .optional()
-      .describe(
-        "Producing run provenance ID from this project and session. Required for empirical contract Results to pass completion; may reference a manually recorded run.",
-      ),
-  }),
+    "Save an important workspace file as a durable Result, or read an exact immutable Result version by artifact_id and version_id (including outputs handed back by a worker). read_file returns bounded text or binary metadata; it does not grant access to another session's scratch. Empirical contract Results need provenance_id to pass completion. Keep drafts and large mutable working data in the workspace instead.",
+  parameters: z
+    .object({
+      action: z.enum(["save_file", "read_file"]),
+      path: z.string().trim().min(1).max(10_000).optional().describe("Required for save_file: workspace file path"),
+      summary: z.string().optional().describe("Concise user-facing Result title"),
+      provenance_id: z
+        .string()
+        .optional()
+        .describe(
+          "Producing run provenance ID from this project and session. Required for empirical contract Results to pass completion; may reference a manually recorded run.",
+        ),
+      artifact_id: z.string().min(1).optional().describe("Required for read_file: exact saved artifact ID"),
+      version_id: z.string().min(1).optional().describe("Required for read_file: exact immutable version ID"),
+      offset: z.number().int().nonnegative().optional().describe("Byte offset for the next bounded text window"),
+    })
+    .superRefine((input, ctx) => {
+      for (const field of input.action === "save_file"
+        ? (["path"] as const)
+        : (["artifact_id", "version_id"] as const)) {
+        if (!input[field])
+          ctx.addIssue({ code: "custom", path: [field], message: `${field} is required for ${input.action}` })
+      }
+    }),
   async execute(params, ctx) {
+    if (params.action === "read_file") {
+      ctx.abort.throwIfAborted()
+      const detail = await ArtifactStore.get(Instance.project.id, params.artifact_id!)
+      const version = detail?.versions.find((item) => item.id === params.version_id)
+      if (version && version.size > MAX_INLINE_BYTES) {
+        return result(
+          `Saved Result: ${version.filename}`,
+          "This Result exceeds the 8 MiB inline-text limit. Retrieve this exact version through Files > Results or the artifact API and analyze it as a file. This response contains stored metadata only; it has not verified or read the blob bytes.",
+          {
+            artifactID: version.artifactID,
+            versionID: version.id,
+            size: version.size,
+            sha256: version.sha256,
+            readStatus: "metadata_only",
+          },
+        )
+      }
+      const stored = await ArtifactStore.read(Instance.project.id, params.artifact_id!, params.version_id!)
+      if (!stored)
+        throw new Error("This artifact version is unavailable or failed integrity verification in the current project.")
+      const info = stored.info
+      const offset = params.offset ?? 0
+      if (offset > info.size) throw new Error(`Byte offset ${offset} exceeds artifact size ${info.size}.`)
+      const bytes = new Uint8Array(await stored.content.slice(offset, offset + 50 * 1024).arrayBuffer())
+      ctx.abort.throwIfAborted()
+      const metadata = {
+        artifactID: info.artifactID,
+        versionID: info.id,
+        filename: info.filename,
+        size: info.size,
+        sha256: info.sha256,
+        mimeType: info.mimeType,
+        offset,
+        readStatus: "verified",
+      }
+      const textual = info.mimeType.startsWith("text/") || /(?:json|xml|yaml|javascript)/i.test(info.mimeType)
+      if (!textual || bytes.includes(0)) {
+        return result(
+          `Saved Result: ${info.filename}`,
+          "This is a binary Result. Open it from Files > Results or retrieve the exact version through the artifact API; it is not a text document.",
+          metadata,
+        )
+      }
+      // Streaming decode leaves an incomplete trailing UTF-8 sequence for the
+      // next window instead of corrupting it at the byte boundary.
+      const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+      const text = (() => {
+        try {
+          return decoder.decode(bytes, { stream: offset + bytes.length < info.size })
+        } catch {
+          throw new Error(
+            "This window is not valid UTF-8 text. Use the returned byte offset from the preceding window, or retrieve the Result as a file to decode its original encoding.",
+          )
+        }
+      })()
+      const end = offset + new TextEncoder().encode(text).length
+      const more = end < info.size
+      return result(
+        `Saved Result: ${info.filename}`,
+        text + (more ? `\n\n[More content: call artifact read_file with the same IDs and offset=${end}.]` : ""),
+        { ...metadata, nextOffset: more ? end : undefined, truncated: more },
+      )
+    }
     const node = params.provenance_id
       ? await Provenance.find(
           {
@@ -137,17 +215,17 @@ export const ArtifactTool = Tool.define("artifact", {
       return result("Invalid provenance", "The producing run was not found in this project and session.")
     }
     {
-      const file = await File.rawSource(params.path, {
+      const file = await File.rawSource(params.path!, {
         sessionID: ctx.sessionID,
         maxBytes: ArtifactStore.MAX_VERSION_BYTES,
       })
-      const name = path.basename(params.path)
+      const name = path.basename(params.path!)
       const classified = ArtifactFile.classify(name)
       const title = params.summary?.trim() || name
       const saved = await ArtifactStore.save({
         projectID: Instance.project.id,
         sessionID: ctx.sessionID,
-        sourcePath: params.path,
+        sourcePath: params.path!,
         filename: name,
         kind: classified?.kind ?? "file",
         content: file,

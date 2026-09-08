@@ -52,6 +52,30 @@ describe("Sandbox.cacheEnvironment", () => {
 })
 
 describe("Sandbox local runtime support", () => {
+  for (const enabled of [false, true]) {
+    test.skipIf(process.platform === "win32" || (enabled && !Sandbox.available()))(
+      `restores the selected interpreter after login PATH changes (${enabled ? "sandboxed" : "unsandboxed"})`,
+      async () => {
+        await using tmp = await tmpdir()
+        const selected = path.join(tmp.path, "selected-python")
+        await Bun.write(selected, "#!/bin/sh\nprintf selected-runtime\n")
+        fs.chmodSync(selected, 0o755)
+        const plan = Sandbox.wrapArgv({
+          file: shell,
+          runtime: { python: selected, path: process.env.PATH },
+          args: (runtimePath) => ["-lc", `PATH=/usr/bin:/bin; export PATH=${JSON.stringify(runtimePath)}; python3`],
+          workspace: [tmp.path],
+          options: { enabled, network: "deny", onUnavailable: "error" },
+        })
+        expect(plan.temporary).toBeString()
+        const result = await execute(plan, tmp.path)
+        expect(result.exit, result.stderr).toBe(0)
+        expect(result.stdout).toBe("selected-runtime")
+        expect(fs.existsSync(plan.temporary!)).toBe(false)
+      },
+    )
+  }
+
   test.skipIf(process.platform === "win32" || !Sandbox.available())(
     "keeps the selected OpenScience Conda environment readable without exposing its parent data root",
     async () => {

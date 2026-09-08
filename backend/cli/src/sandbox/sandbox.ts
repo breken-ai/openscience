@@ -230,22 +230,25 @@ export namespace Sandbox {
     for (const temporary of [...temporaryRoots]) cleanup({ temporary })
   })
 
-  function withTempEnvironment(argv: string[], temporary: string, runtime?: { python?: string; path?: string }) {
-    const bin = (() => {
-      if (!runtime?.python) return
-      const value = path.join(temporary, "runtime", "bin")
-      fs.mkdirSync(value, { recursive: true })
-      for (const name of process.platform === "win32" ? ["python.exe", "python3.exe"] : ["python", "python3"]) {
-        const link = path.join(value, name)
-        try {
-          fs.symlinkSync(runtime.python, link, process.platform === "win32" ? "file" : undefined)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-        }
-      }
-      return value
-    })()
-    const inherited = runtime?.path ?? process.env.PATH
+  function runtimePath(temporary: string, runtime?: { python?: string; path?: string }) {
+    if (!runtime?.python) return runtime?.path
+    // Windows Python installations carry DLLs beside python.exe and cannot
+    // rely on privileged symlink creation. Keep their selected directory first.
+    if (process.platform === "win32") {
+      return [path.dirname(runtime.python), runtime.path ?? process.env.PATH].filter(Boolean).join(path.delimiter)
+    }
+    const bin = path.join(temporary, "runtime", "bin")
+    fs.mkdirSync(bin, { recursive: true })
+    // A symlink placed outside a venv loses its pyvenv.cfg lookup and starts
+    // the base interpreter instead. exec preserves the selected binary path.
+    const wrapper = `#!/bin/sh\nexec '${runtime.python.replaceAll("'", "'\\''")}' "$@"\n`
+    for (const name of ["python", "python3"]) {
+      fs.writeFileSync(path.join(bin, name), wrapper, { flag: "wx", mode: 0o700 })
+    }
+    return [bin, runtime.path ?? process.env.PATH].filter(Boolean).join(path.delimiter)
+  }
+
+  function withTempEnvironment(argv: string[], temporary: string, runtimePath?: string) {
     return [
       "/usr/bin/env",
       `TMPDIR=${temporary}`,
@@ -256,7 +259,7 @@ export namespace Sandbox {
       // read-only inside the sandbox. Keep those files in the same private,
       // owner-only temp root as every other runtime.
       `TMPPREFIX=${path.join(temporary, "zsh")}`,
-      ...(bin ? [`PATH=${[bin, inherited].filter(Boolean).join(path.delimiter)}`] : []),
+      ...(runtimePath ? [`PATH=${runtimePath}`] : []),
       ...argv,
     ]
   }
@@ -822,6 +825,23 @@ export namespace Sandbox {
   }): Plan {
     const { backend: b, warning } = decide(input.options)
     if (b === "none") {
+      if (input.runtime?.python && process.platform !== "win32") {
+        const temporary = privateTemp()
+        try {
+          const selectedPath = runtimePath(temporary, input.runtime)!
+          return {
+            file: `export PATH='${selectedPath.replaceAll("'", "'\\''")}'; ${input.command}`,
+            useShell: input.shell,
+            sandboxed: false,
+            backend: "none",
+            warning,
+            temporary,
+          }
+        } catch (error) {
+          cleanup({ temporary })
+          throw error
+        }
+      }
       return { file: input.command, useShell: input.shell, sandboxed: false, backend: "none", warning }
     }
     const temporary = privateTemp()
@@ -835,7 +855,10 @@ export namespace Sandbox {
         entrypoints: [input.shell, input.runtime?.python].filter((value): value is string => !!value),
         options: input.options!,
       })
-      const s = specForArgv(withTempEnvironment([input.shell, "-c", input.command], temporary, input.runtime), policy)!
+      const s = specForArgv(
+        withTempEnvironment([input.shell, "-c", input.command], temporary, runtimePath(temporary, input.runtime)),
+        policy,
+      )!
       log.info("sandboxing command", { backend: b, network: policy.network, writable: policy.writable.length })
       return { file: s.file, args: s.args, useShell: false, sandboxed: true, backend: b, temporary, warning }
     } catch (error) {
@@ -852,7 +875,9 @@ export namespace Sandbox {
    */
   export function wrapArgv(input: {
     file: string
-    args: string[]
+    /** Login shells can restore this selected PATH after their startup files. */
+    args: string[] | ((runtimePath?: string) => string[])
+    runtime?: { python?: string; path?: string }
     /** Workspace roots that stay writable. */
     workspace: string[]
     /** Explicit read-only grant roots for this process. */
@@ -866,11 +891,20 @@ export namespace Sandbox {
     options?: Options
   }): Wrapped {
     const { backend: b, warning } = decide(input.options)
-    if (b === "none") {
-      return { file: input.file, args: input.args, sandboxed: false, backend: "none", warning }
+    if (b === "none" && !input.runtime) {
+      return {
+        file: input.file,
+        args: typeof input.args === "function" ? input.args() : input.args,
+        sandboxed: false,
+        backend: "none",
+        warning,
+      }
     }
     const temporary = privateTemp()
     try {
+      const selectedPath = runtimePath(temporary, input.runtime)
+      const args = typeof input.args === "function" ? input.args(selectedPath) : input.args
+      if (b === "none") return { file: input.file, args, temporary, sandboxed: false, backend: "none", warning }
       const policy = buildPolicy({
         workspace: input.workspace,
         temporary,
@@ -878,10 +912,10 @@ export namespace Sandbox {
         readOnly: input.readOnly,
         extraWritable: input.extraWritable,
         unreadable: input.unreadable,
-        entrypoints: [input.file],
+        entrypoints: [input.file, input.runtime?.python].filter((value): value is string => !!value),
         options: input.options!,
       })
-      const s = specForArgv(withTempEnvironment([input.file, ...input.args], temporary), policy)!
+      const s = specForArgv(withTempEnvironment([input.file, ...args], temporary, selectedPath), policy)!
       log.info("sandboxing process", { backend: b, network: policy.network, writable: policy.writable.length })
       return { file: s.file, args: s.args, sandboxed: true, backend: b, temporary, warning }
     } catch (error) {
