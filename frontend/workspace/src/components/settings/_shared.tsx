@@ -1,21 +1,36 @@
-import { For, Show, createSignal, createUniqueId, type JSX, type ParentComponent, type Component } from "solid-js"
+import {
+  For,
+  Show,
+  createSignal,
+  createUniqueId,
+  onMount,
+  type JSX,
+  type ParentComponent,
+  type Component,
+} from "solid-js"
 import { Icon } from "@synsci/ui/icon"
 import type { IconProps } from "@synsci/ui/icon"
 import { DropdownMenu } from "@synsci/ui/dropdown-menu"
 
 // These menus render inside the modal settings Dialog. Kobalte portals a
-// dropdown to document.body by default, which lands OUTSIDE the dialog's
-// dismissable layer — the dialog then treats the open as an outside
-// interaction and closes the menu instantly. Mounting the portal into the
-// enclosing dialog content nests the layers so the menu opens and stays open.
+// dropdown to document.body by default, outside the dialog's accessible and
+// dismissable layer. Mount the portal inside the enclosing dialog so its
+// items stay accessible and interactions belong to that dialog.
 // Falls back to the default body portal when not inside a dialog.
 function useDialogMount() {
   const [mount, setMount] = createSignal<HTMLElement>()
+  let trigger: HTMLElement | undefined
+  const update = () => setMount(trigger?.closest<HTMLElement>('[data-slot="dialog-content"]') ?? undefined)
   const anchor = (el: HTMLElement) => {
-    const content = el.closest<HTMLElement>('[data-slot="dialog-content"]')
-    if (content) setMount(content)
+    trigger = el
   }
-  return { mount, anchor }
+  // Ref callbacks can run before attachment. Resolve once connected, and
+  // again when opening in case the trigger has moved into another layer.
+  onMount(update)
+  const open = (value: boolean) => {
+    if (value) update()
+  }
+  return { mount, anchor, open }
 }
 
 // Shared visual language for the OpenScience settings panels. Matches the
@@ -194,7 +209,7 @@ export const FilterMenu: Component<{
   const active = () => props.options.find((o) => o.id === props.value) ?? props.options[0]
   const dialog = useDialogMount()
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={dialog.open}>
       <DropdownMenu.Trigger
         ref={dialog.anchor}
         aria-label={props.ariaLabel}
@@ -234,7 +249,7 @@ export interface AddItem {
 export const AddMenu: Component<{ label: string; items: AddItem[] }> = (props) => {
   const dialog = useDialogMount()
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={dialog.open}>
       <DropdownMenu.Trigger
         ref={dialog.anchor}
         aria-label={props.label}

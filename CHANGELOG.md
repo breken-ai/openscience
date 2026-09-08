@@ -10,6 +10,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Keep settings dropdowns inside their dialog so assistive technology can reach
+  skill creation and filter options. Restore the skill-authoring browser test.
 - Keep delayed history loading from undoing a newer **Jump to Latest**, send, or
   reading position; discard scroll restoration after switching conversations.
 - Publish the official Homebrew tap with a credential scoped to that repository,
