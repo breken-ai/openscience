@@ -10,6 +10,108 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Match the new-terminal shortcut by physical key so Ctrl+Shift+` works on layouts
+  where Shift+backtick reports a different symbol, and point twelve more skills at
+  the real scientific-schematics script path.
+- Document the 5.5% Ace funding fee (applied once per request, with no other
+  markup; card processing fee shown separately at checkout) in the pricing, Ace,
+  and FAQ guides, the README, and the landing page. The landing page no longer
+  describes retired native provider routes and marks memory as coming soon.
+- Name the **Keys & subscriptions** access mode by its actual label in the docs,
+  correct the `model`/`tools` alias direction and the NGC API key field name,
+  restore the Mammouth custom-provider example under Custom providers, and refresh
+  stale engineering notes (landing page path, release rehearsal workflow name).
+- Align bundled skill instructions with their helpers: DrugBank loads only an
+  explicitly provided licensed export and tolerates records without a primary
+  id, BRENDA credentials come from the process environment, Zotero access is
+  explicit-request guidance gated by Zotero's local-API setting, venue templates
+  point at the real poster and schematic paths, Hugging Face Jobs drops a
+  `--filter-method` flag that `generate-responses.py` does not accept, and Open
+  Targets notes that its tests replay recorded fixtures.
+- Keep an explicit Show/Hide reasoning-and-activity control, with its chevron
+  and expanded state, while a turn is working; report request and retry status
+  beside it, and pin the control inside the turn so a long trace stays
+  collapsible from wherever the reader is.
+- Label delegated work by what the runtime recorded: preparing until a child
+  session exists, queued or running only once one does, and a delegation that
+  failed to start kept distinct from a worker that failed, returned a partial
+  result or reached its time limit.
+- Offer the files a shell command or kernel changed as turn outputs, taken from
+  the filesystem diffs recorded after each step and resolved like other file
+  links, so nothing is guessed from command text.
+- Present a turn that ended early as stopped, with the recorded reason (a Stop
+  press, a named interruption, a wait the runtime gave up on, or a provider
+  failure), the outputs kept and the operations left pending. Nothing is
+  rolled back or resumed automatically.
+- Back off desktop update polling after twenty reads, up to thirty seconds
+  between reads, and stop polling a blocked restart until the user acts.
+- Remove unused interface strings and the English placeholders copied into
+  non-English locales, which now fall back to English. Keep onboarding copy
+  host-neutral, bound the browser sign-in wait, and recognise loaded skills
+  from their recorded metadata rather than the receipt title alone.
+- Price Ace turns from the gateway's reported cost plus the funding fee instead
+  of a token table, so managed models never show $0 while the pricing catalog
+  loads; "Refresh options" now bypasses the pricing failure cooldown and the
+  catalog read is bounded by one timeout.
+- Refresh the Wallet after a managed turn settles rather than at the response
+  headers, announce failed background account refreshes so "Refreshing…" cannot
+  stick, and show the available balance (purchased balance less holds for turns
+  in flight) beside the purchased balance in the Wallet panel.
+- Poll the credential sync digest every 90 seconds and fetch the full payload
+  only when it changes or every five minutes.
+- Stop advertising PDF, audio and video inputs for Ace models, which the managed
+  gateway cannot carry; an attached PDF becomes a note for the model instead of
+  an error. Describe Ace pricing as the provider price plus the 5.5% funding fee
+  with no other markup, use Wallet wording in empty-balance messages, and show
+  the Fast mode rate next to the Fast toggle and in the Models panel.
+- Record the 922,000-token input limit for the GPT-5.6 Sol, Terra and Luna
+  routes and the GPT-6 Astra release date so the newest model gets its badge.
+- Give delegated work a usable continuation contract: an omitted, empty or
+  placeholder `session_id` starts one child, an invented, bare or foreign id
+  fails before any child is created with the exact recovery (omit it, or reuse
+  one of this session's real child ids), and every Task result and compacted
+  handoff begins with the child session id to reuse.
+- Recognise repeated tool failures with the same cause even when the model
+  rewords its arguments: the second failure appends corrective guidance to the
+  tool result and the third stops the turn, independently of access settings.
+- Let a session that may overwrite a project file also move, delete and restore
+  it: legacy sessions without a project-root grant no longer fail deletions with
+  a bare `SessionFilesystemDeniedError`, and a real denial now names the
+  operation, path, missing authority and recovery.
+- Treat a second finalization of the same runtime run as idempotent and bind
+  cancellation to the exact run, so a cancel that races normal settlement no
+  longer logs a phantom active run and a stale cancel cannot abort a replacement.
+- Emit one `tool_use` per part in `openscience run --format json` so a Harbor
+  trial no longer fails with "duplicate event part" after context pruning
+  republishes completed tool parts; name 2.0.78 as the first Harbor-compatible
+  release and run the native Harbor trial on main in its own job.
+- Continue past a model's output limit only while continuations make progress;
+  two consecutive continuations with no completed tool result and no new text
+  stop with a clear error that keeps the partial output. Scope the repeated-
+  response guard to the current request so a recorded stop cannot re-fire on
+  later prompts, and read only that request's messages for the repeated-call
+  guard instead of streaming the whole session on every tool call.
+- Estimate PDF attachments by page count rather than transport bytes, so a
+  multi-megabyte scan no longer reads as hundreds of thousands of tokens and is
+  refused before any request is sent.
+- Retry a provider request whose connection failed before any response byte
+  (refused, unresolved, or closed before headers) while no tool has started.
+  Wait up to five minutes for response headers, disable that deadline for local
+  runtimes (loopback or `.local` endpoints and the bundled local providers),
+  and bound transient retries to five attempts with jittered backoff capped at
+  one minute. Request timeouts and managed gateway verdicts remain terminal.
+- Return a delegated child's final answer as the Task result instead of every
+  text fragment it produced; the child session id in the result metadata still
+  opens the full transcript.
+- Route tool relevance and skill activation from the request's real prompts
+  across its whole epoch, so synthetic continuations no longer hide the editing,
+  Python and skill-enabled tools a long task needs.
+- Request adaptive thinking by default for Claude Opus 4.7/4.8 and Opus and
+  Sonnet 4.6.
+- Journal delegated child sessions' events under the parent's runtime run and
+  include their pending permissions and questions in the parent's snapshot.
+- Add `compaction.recentImages` to configure how many recent images are sent
+  in full with each request (default unchanged: 1).
 - Fix Windows desktop startup failing with `spawn /bin/ps ENOENT` by limiting
   macOS updater process-identity checks to supervised update launches.
 - Require Microsoft Artifact Signing for stable Windows desktop installers,

@@ -20,6 +20,8 @@ import { accessRoute, resolveCredentialSource } from "./access-route"
 import { requiresWalletBalance } from "./access-route"
 import type { CredentialSource } from "./access-route"
 import { OpenScience } from "@/openscience"
+import { BILLING_URL } from "@/endpoints"
+import { ManagedPricing } from "@/provider/managed-pricing"
 import { SessionTraceStore } from "./trace-store"
 import type { NamedError } from "@synsci/util/error"
 import { ToolRetryGuard } from "./tool-retry-guard"
@@ -33,14 +35,17 @@ import { Instance } from "@/project/instance"
 import { CredentialRevocation } from "@/credentials/revocation"
 import { abortedToolPart } from "./tool-outcome"
 import { outputWatchdog, watchOutput } from "./output-watchdog"
+import { defer } from "@/util/defer"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   // Hard ceiling on transient-error retries within a single message generation.
   // The retry loop is otherwise unbounded, and retry.ts classifies any JSON
   // body carrying an `error` field as retryable — so a persistently-failing
-  // provider (or a permanent error arriving as JSON) looped forever.
-  const MAX_RETRY_ATTEMPTS = 10
+  // provider (or a permanent error arriving as JSON) looped forever. Five
+  // attempts under the capped backoff in retry.ts surface a dead provider in
+  // about two minutes instead of most of an hour.
+  const MAX_RETRY_ATTEMPTS = 5
   const log = Log.create({ service: "session.processor" })
 
   /** Provider reasoning can contain a private-payload placeholder, including
@@ -105,13 +110,16 @@ export namespace SessionProcessor {
   }
 
   function toolErrorSignature(error: string) {
-    return error
-      .toLowerCase()
-      .replace(/\b(?:artifact-path|artifact|tool-call|tool):[^\s,;]+/g, "$ref")
-      .replace(/\b(?:ses|msg|prt|call|job|lesson)[_-][a-z0-9_-]+\b/g, "$id")
-      .replace(/\b\d+(?:\.\d+)?\b/g, "#")
-      .replace(/\s+/g, " ")
-      .trim()
+    return (
+      error
+        .toLowerCase()
+        .replace(/\b(?:artifact-path|artifact|tool-call|tool):[^\s,;]+/g, "$ref")
+        // A bare `ses_` (an invented placeholder) normalizes like a full id.
+        .replace(/\b(?:ses|msg|prt|call|job|lesson)[_-][a-z0-9_-]*\b/g, "$id")
+        .replace(/\b\d+(?:\.\d+)?\b/g, "#")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
   }
 
   export function isToolErrorLoop(parts: MessageV2.Part[], toolName: string, threshold = 2) {
@@ -125,10 +133,58 @@ export namespace SessionProcessor {
     return last.every((part) => toolErrorSignature(part.state.error) === signature)
   }
 
+  export const TOOL_ERROR_GUIDANCE_AT = 2
+  export const TOOL_ERROR_STOP_AT = 3
+
+  /** Count the trailing run of same-signature errors for `toolName`, treating a
+   * completed call of that tool as a reset. Unlike `isDoomLoop` (identical input
+   * JSON), this keys on the normalized error, so a model that reworded prompts
+   * around the same failure is still recognized. */
+  export function toolErrorLoopCount(parts: MessageV2.Part[], toolName: string): number {
+    const calls = parts.filter(
+      (part): part is MessageV2.ToolPart =>
+        part.type === "tool" &&
+        part.tool === toolName &&
+        (part.state.status === "error" || part.state.status === "completed"),
+    )
+    const last = calls.at(-1)
+    if (!last || last.state.status !== "error") return 0
+    const signature = toolErrorSignature(last.state.error)
+    let count = 0
+    for (let index = calls.length - 1; index >= 0; index--) {
+      const state = calls[index].state
+      if (state.status !== "error" || toolErrorSignature(state.error) !== signature) break
+      count++
+    }
+    return count
+  }
+
+  export type ToolErrorLoopAction = "none" | "guide" | "stop"
+
+  /** Decide what the turn should do about a repeated tool error. Independent of
+   * permission/access settings: it is purely a convergence guard. */
+  export function toolErrorLoopAction(parts: MessageV2.Part[], toolName: string): ToolErrorLoopAction {
+    const count = toolErrorLoopCount(parts, toolName)
+    if (count >= TOOL_ERROR_STOP_AT) return "stop"
+    if (count >= TOOL_ERROR_GUIDANCE_AT) return "guide"
+    return "none"
+  }
+
+  export function toolErrorGuidance(toolName: string) {
+    return `OpenScience noticed repeated ${toolName} failures with the same cause this turn. Re-read the error text above and change your approach — fix the exact reported problem, use a different tool, or ask for what you are missing. Do not resubmit a reworded version of the same failing call.`
+  }
+
+  export function toolErrorStopMessage(toolName: string) {
+    return `OpenScience stopped this turn after three consecutive ${toolName} failures with the same cause. No further ${toolName} calls were attempted. Address the reported problem before retrying, or take a different approach.`
+  }
+
   /** Collect all assistant parts produced for one user request. The prompt loop
    * creates a new assistant message after every tool step, so checking only the
    * current message misses the most common repeated-call failure mode. */
-  export function turnParts(messages: MessageV2.WithParts[], parentID: string): MessageV2.Part[] {
+  export function turnMessages(
+    messages: MessageV2.WithParts[],
+    parentID: string,
+  ): (MessageV2.WithParts & { info: MessageV2.Assistant })[] {
     const users = new Map(
       messages
         .filter((message): message is MessageV2.WithParts & { info: MessageV2.User } => message.info.role === "user")
@@ -139,7 +195,7 @@ export namespace SessionProcessor {
       ? (SessionLoopState.messageEpoch(parent.info) ?? (SessionLoopState.external(parent) ? parent.info.id : undefined))
       : undefined
     return messages
-      .filter((message) => {
+      .filter((message): message is MessageV2.WithParts & { info: MessageV2.Assistant } => {
         if (message.info.role !== "assistant") return false
         if (!epoch) return message.info.parentID === parentID
         const owner = users.get(message.info.parentID)
@@ -147,7 +203,59 @@ export namespace SessionProcessor {
         return SessionLoopState.messageEpoch(owner.info) === epoch || owner.info.id === epoch
       })
       .sort((left, right) => left.info.id.localeCompare(right.info.id))
-      .flatMap((message) => message.parts)
+  }
+
+  export function turnParts(messages: MessageV2.WithParts[], parentID: string): MessageV2.Part[] {
+    return turnMessages(messages, parentID).flatMap((message) => message.parts)
+  }
+
+  /** An assistant turn's own visible text, normalized for repetition checks:
+   * lowercased, whitespace-collapsed, synthetic and hidden parts excluded. */
+  export function turnText(turn: MessageV2.WithParts) {
+    return turn.parts
+      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
+      .map((part) => part.text)
+      .join("\n")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+
+  /** Finished turns of one request that can still show non-convergence. A
+   * terminal error record in the epoch is a trip already taken, so the turns
+   * before it cannot fire a guard again; compaction summaries are not the
+   * model's answer and never count. */
+  export function convergenceWindow(turns: MessageV2.WithParts[]) {
+    const tripped = turns.findLastIndex((turn) => turn.info.role === "assistant" && !!turn.info.error)
+    return turns
+      .slice(tripped + 1)
+      .filter((turn) => turn.info.role === "assistant" && !!turn.info.finish && !turn.info.summary)
+  }
+
+  /** Trailing continuation turns that ended at the output limit without a
+   * completed tool result or text beyond the previous truncated turn. The
+   * first truncation always earns a continuation; only what the continuations
+   * produce afterwards counts, and any other finish ends the chain. */
+  export function outputStall(turns: MessageV2.WithParts[], prefix = 300): number {
+    let stalled = 0
+    let previous: string | undefined
+    for (const turn of turns) {
+      if (turn.info.role !== "assistant" || !turn.info.finish || turn.info.summary) continue
+      if (turn.info.finish !== "length") {
+        stalled = 0
+        previous = undefined
+        continue
+      }
+      const text = turnText(turn)
+      const completed = turn.parts.some(
+        (part) => part.type === "tool" && part.state.status === "completed" && part.metadata?.providerExecuted !== true,
+      )
+      const repeated = previous !== undefined && (text === previous || sharedPrefixLen(previous, text) >= prefix)
+      const progressed = completed || (text.length > 0 && !repeated)
+      stalled = previous === undefined || progressed ? 0 : stalled + 1
+      previous = text
+    }
+    return stalled
   }
 
   function sharedPrefixLen(a: string, b: string): number {
@@ -557,6 +665,23 @@ export namespace SessionProcessor {
       },
     })
 
+    // The doom-loop guards need this request's earlier tool calls. Read the
+    // epoch once per step instead of streaming the whole session from disk on
+    // every tool call; a part change elsewhere in the session drops the copy.
+    let epochHistory: Promise<MessageV2.WithParts[]> | undefined
+    const history = () =>
+      (epochHistory ??= MessageV2.epoch(input.sessionID, input.assistantMessage.parentID).then(
+        (messages) => messages.filter((message) => message.info.id !== input.assistantMessage.id),
+        (error: unknown) => {
+          // A failed read must not stick to every later tool call of the step.
+          epochHistory = undefined
+          throw error
+        },
+      ))
+    const invalidate = (sessionID: string, messageID: string) => {
+      if (sessionID === input.sessionID && messageID !== input.assistantMessage.id) epochHistory = undefined
+    }
+
     const result = {
       get message() {
         return input.assistantMessage
@@ -578,6 +703,18 @@ export namespace SessionProcessor {
       },
       async process(streamInput: LLM.StreamInput) {
         log.info("process")
+        const watchers = [
+          Bus.subscribe(MessageV2.Event.PartUpdated, (event) =>
+            invalidate(event.properties.part.sessionID, event.properties.part.messageID),
+          ),
+          Bus.subscribe(MessageV2.Event.PartRemoved, (event) =>
+            invalidate(event.properties.sessionID, event.properties.messageID),
+          ),
+          Bus.subscribe(MessageV2.Event.Removed, (event) =>
+            invalidate(event.properties.sessionID, event.properties.messageID),
+          ),
+        ]
+        using _watchers = defer(() => watchers.forEach((stop) => stop()))
         const progress = (phase: SessionTelemetry.RequestPhase) =>
           SessionTelemetry.recordProgress({
             sessionID: input.sessionID,
@@ -631,7 +768,7 @@ export namespace SessionProcessor {
               if (balance <= 0) {
                 OpenScience.invalidateBalance()
                 throw new Error(
-                  "Your Ace balance is empty. Add credits at app.syntheticsciences.ai/billing or switch model access to BYOK / Subscription.",
+                  `Your Wallet has no available balance (purchased balance less holds for turns in flight). Add funds at ${BILLING_URL} or switch model access to Keys & subscriptions.`,
                 )
               }
             }
@@ -819,8 +956,13 @@ export namespace SessionProcessor {
                     // reconcile it as soon as the call part exists.
                     await toolOutcomes.running(part as MessageV2.ToolPart)
 
-                    const history = await Array.fromAsync(MessageV2.stream(input.sessionID))
-                    const parts = turnParts(history, input.assistantMessage.parentID)
+                    const parts = turnParts(
+                      [
+                        ...(await history()),
+                        { info: input.assistantMessage, parts: await MessageV2.parts(input.assistantMessage.id) },
+                      ],
+                      input.assistantMessage.parentID,
+                    )
                     const repeated =
                       value.toolName === "invalid"
                         ? isMalformedLoop(parts, value.input)
@@ -885,12 +1027,18 @@ export namespace SessionProcessor {
                   break
 
                 case "finish-step":
+                  const funded = requiresWalletBalance(credentialSource)
                   const usage = Session.getUsage({
                     model: input.model,
                     tier: streamInput.user.tier,
                     usage: value.usage,
                     metadata: value.providerMetadata,
+                    fundingFeeBps: funded ? ManagedPricing.fundingFeeBps(input.model) : undefined,
                   })
+                  // Each step is one gateway request the Wallet settles a
+                  // moment after its stream ends; announce it here rather than
+                  // at the response headers, which predate the charge.
+                  if (funded) OpenScience.noteManagedSpend()
                   const stepPartID = Identifier.ascending("part")
                   input.assistantMessage.finish = value.finishReason
                   input.assistantMessage.cost += usage.cost
@@ -1144,6 +1292,43 @@ export namespace SessionProcessor {
                   : abortedToolPart(part, interruption?.message ?? "Tool execution aborted"),
               )
               toolOutcomes.abandon(part.callID)
+            }
+          }
+          // Repeated same-signature tool errors that the input-based doom-loop
+          // guard cannot see (the model reworded its arguments each time). On the
+          // second such error, append corrective guidance to the tool result the
+          // model will read next; on the third, stop the turn.
+          if (!overflow && !needsCompaction && !blocked && !input.assistantMessage.error) {
+            const lastError = p.findLast(
+              (part): part is MessageV2.ToolPart => part.type === "tool" && part.state.status === "error",
+            )
+            if (lastError && lastError.state.status === "error") {
+              const history = turnParts(
+                await Array.fromAsync(MessageV2.stream(input.sessionID)),
+                input.assistantMessage.parentID,
+              )
+              const action = toolErrorLoopAction(history, lastError.tool)
+              if (action !== "none" && !lastError.state.error.includes(toolErrorGuidance(lastError.tool))) {
+                await Session.updatePart({
+                  ...lastError,
+                  state: {
+                    ...lastError.state,
+                    error: `${lastError.state.error}\n\n${toolErrorGuidance(lastError.tool)}`,
+                  },
+                })
+              }
+              if (action === "stop") {
+                blocked = true
+                await Session.updatePart({
+                  id: Identifier.ascending("part"),
+                  messageID: input.assistantMessage.id,
+                  sessionID: input.sessionID,
+                  type: "text",
+                  synthetic: true,
+                  text: toolErrorStopMessage(lastError.tool),
+                  time: { start: Date.now(), end: Date.now() },
+                } satisfies MessageV2.TextPart)
+              }
             }
           }
           input.assistantMessage.time.completed = Date.now()

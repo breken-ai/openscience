@@ -5,17 +5,20 @@ import {
   assertLeadDelegationSession,
   assertTaskContinuation,
   childPermissionRules,
+  classifyTaskContinuation,
   classifyTaskOutcome,
   normalizeTaskAttemptInput,
+  resolveTaskContinuation,
   summarizeTurn,
   taskHandoff,
   taskText,
+  TaskContinuationError,
   TaskTool,
   taskContinuationID,
 } from "../../src/tool/task"
 import { PermissionNext } from "../../src/permission/next"
 import { tmpdir } from "../fixture/fixture"
-import type { MessageV2 } from "../../src/session/message-v2"
+import { MessageV2 } from "../../src/session/message-v2"
 import { Session } from "../../src/session"
 
 test("Task advertises generic phases and accepts an explicit domain specialist lens", async () => {
@@ -219,8 +222,10 @@ test("Task summaries expose command and runtime failures carried in completed me
   ])
 })
 
-test("Task handoffs join every nonempty child text part in chronological order", () => {
-  const message = (id: string, created: number, parts: Array<{ id: string; text: string }>): MessageV2.WithParts => ({
+type HandoffPart = { id: string; text: string; ignored?: boolean } | { id: string; tool: true }
+
+function handoffMessage(id: string, created: number, parts: HandoffPart[]): MessageV2.WithParts {
+  return {
     info: {
       id,
       sessionID: "ses_child",
@@ -235,28 +240,67 @@ test("Task handoffs join every nonempty child text part in chronological order",
       cost: 0,
       tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     },
-    parts: parts.map((part) => ({
-      ...part,
-      sessionID: "ses_child",
-      messageID: id,
-      type: "text" as const,
-    })),
-  })
+    parts: parts.map((part) =>
+      "tool" in part
+        ? {
+            id: part.id,
+            sessionID: "ses_child",
+            messageID: id,
+            type: "tool" as const,
+            tool: "read",
+            callID: `call_${part.id}`,
+            state: {
+              status: "completed" as const,
+              input: {},
+              output: "fixture",
+              title: "read",
+              metadata: {},
+              time: { start: created, end: created + 1 },
+            },
+          }
+        : {
+            id: part.id,
+            sessionID: "ses_child",
+            messageID: id,
+            type: "text" as const,
+            text: part.text,
+            ignored: part.ignored,
+          },
+    ),
+  }
+}
+
+test("Task handoffs return the child's final answer, written after its last tool call", () => {
   const messages = [
-    message("msg_later", 20, [
-      { id: "prt_second", text: "second conclusion" },
+    handoffMessage("msg_final", 30, [
+      { id: "prt_plan", text: "Let me verify the result first." },
+      { id: "prt_verify", tool: true },
+      { id: "prt_hidden", text: "internal bookkeeping", ignored: true },
+      { id: "prt_findings", text: "## Findings\n- verified result 0.913" },
       { id: "prt_empty", text: "   " },
+      { id: "prt_next", text: "## Next action\n- apply the patch" },
     ]),
-    message("msg_earlier", 10, [
+    handoffMessage("msg_earlier", 10, [
       { id: "prt_a_opening", text: "opening evidence" },
       { id: "prt_b_detail", text: "supporting detail" },
     ]),
-    message("msg_historical", 1, [{ id: "prt_old", text: "old result" }]),
+    handoffMessage("msg_historical", 1, [{ id: "prt_old", text: "old result" }]),
   ]
 
   expect(taskText(messages, new Set(["msg_historical"]))).toBe(
-    "opening evidence\n\nsupporting detail\n\nsecond conclusion",
+    "## Findings\n- verified result 0.913\n\n## Next action\n- apply the patch",
   )
+})
+
+test("Task handoffs fall back to the last message that said anything", () => {
+  const trailing = handoffMessage("msg_tool_only", 30, [{ id: "prt_last_tool", tool: true }])
+  const spoke = handoffMessage("msg_spoke", 20, [
+    { id: "prt_note", text: "partial note before a final check" },
+    { id: "prt_check", tool: true },
+  ])
+  expect(taskText([trailing, spoke], new Set())).toBe("partial note before a final check")
+  expect(taskText([trailing], new Set())).toBe("")
+  expect(taskText([spoke, trailing], new Set(["msg_spoke"]))).toBe("")
 })
 
 test("Task handoffs preserve the complete child result by default", () => {
@@ -341,4 +385,98 @@ test("Task preserves byte-exact long assignments and rejects internal compaction
       "ses_parent",
     ),
   ).toThrow("No child was started")
+})
+
+test("Task classifies every placeholder, empty and self-referential session id as a new child", () => {
+  const parent = "ses_parent_real"
+  for (const value of [
+    undefined,
+    null,
+    "",
+    "   ",
+    parent,
+    "ses_new",
+    "ses_NONE",
+    "ses_null",
+    "ses_undefined",
+    "ses_placeholder",
+    "ses_current",
+    "ses_parent",
+  ]) {
+    expect(classifyTaskContinuation(value, parent)).toEqual({ kind: "new" })
+  }
+  expect(classifyTaskContinuation(" ses_child_real ", parent)).toEqual({
+    kind: "continue",
+    sessionID: "ses_child_real",
+  })
+  expect(classifyTaskContinuation("ses_", parent)).toEqual({ kind: "continue", sessionID: "ses_" })
+  expect(classifyTaskContinuation(`${parent}_code`, parent)).toEqual({ kind: "continue", sessionID: `${parent}_code` })
+})
+
+test("Task continuation resolves only a direct child and explains recovery for invented, bare or foreign ids", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const parent = await Session.create({})
+      const ownChild = await Session.create({ parentID: parent.id, title: "literature sweep" })
+      const siblingParent = await Session.create({})
+      const foreignChild = await Session.create({ parentID: siblingParent.id })
+      const scope = { parentSession: parent, projectID: parent.projectID }
+
+      expect((await resolveTaskContinuation({ requested: ownChild.id, ...scope }))?.id).toBe(ownChild.id)
+      expect(await resolveTaskContinuation({ requested: undefined, ...scope })).toBeUndefined()
+      expect(await resolveTaskContinuation({ requested: "ses_new", ...scope })).toBeUndefined()
+      expect(await resolveTaskContinuation({ requested: parent.id, ...scope })).toBeUndefined()
+
+      for (const requested of [
+        "ses_",
+        `${parent.id}_code`,
+        `${parent.id}_eval`,
+        foreignChild.id,
+        "ses_stale_never_existed",
+      ]) {
+        const failure = await resolveTaskContinuation({ requested, ...scope }).then(
+          () => undefined,
+          (error: unknown) => error,
+        )
+        expect(failure).toBeInstanceOf(TaskContinuationError)
+        const message = (failure as Error).message
+        expect(message).toContain(`No child session ${requested} exists for this session`)
+        expect(message).toContain("No child was started")
+        expect(message).toContain("Omit session_id to start a new task")
+        expect(message).toContain(`${ownChild.id} (literature sweep)`)
+      }
+
+      const orphan = await Session.create({})
+      const none = await resolveTaskContinuation({
+        requested: "ses_",
+        parentSession: orphan,
+        projectID: orphan.projectID,
+      }).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect((none as Error).message).toContain("has started no child tasks to continue yet")
+    },
+  })
+})
+
+test("a compacted Task summary keeps the reusable child session id", () => {
+  const state = {
+    status: "completed" as const,
+    input: { description: "literature sweep", prompt: "find papers" },
+    output: "Task session ses_child_real: reuse this sessionId to continue the same worker.\nfindings",
+    title: "literature sweep",
+    metadata: { sessionId: "ses_child_real", handoff: "three relevant papers" },
+    time: { start: 1, end: 2 },
+  }
+  const summary = MessageV2.toolSummary("task", state as any)
+  expect(summary.startsWith("Task session ses_child_real: reuse this sessionId to continue the same worker.")).toBe(
+    true,
+  )
+  expect(summary).toContain("three relevant papers")
+  const cleared = MessageV2.toolSummary("task", { ...state, metadata: { sessionId: "ses_child_real" } } as any)
+  expect(cleared.startsWith("Task session ses_child_real:")).toBe(true)
+  expect(MessageV2.toolSummary("read", { ...state, metadata: {} } as any).startsWith("Task session")).toBe(false)
 })

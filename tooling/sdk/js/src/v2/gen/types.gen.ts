@@ -115,6 +115,7 @@ export type EventAccountUpdated = {
   type: "account.updated"
   properties: {
     refreshed_at: number
+    error?: string
   }
 }
 
@@ -1843,7 +1844,7 @@ export type ProviderConfig = {
      */
     idleTimeout?: number | false
     /**
-     * Maximum wait for provider response headers in milliseconds, including connection setup and upstream admission. Defaults to 120000 (2 minutes). Set false to disable.
+     * Maximum wait for provider response headers in milliseconds, including connection setup and upstream admission. Defaults to 300000 (5 minutes), and to disabled for local endpoints (loopback or .local base URLs and the ollama, lmstudio, llamacpp, vllm and jan providers), which send headers only after prompt processing. Set false to disable.
      */
     connectTimeout?: number | false
     /**
@@ -2025,7 +2026,7 @@ export type Config = {
    */
   billing?: {
     /**
-     * How LLM inference is paid for. 'managed' uses Ace Credits; 'byok' uses only user-owned keys, subscriptions, or local models.
+     * How LLM inference is paid for. 'managed' pays from the purchased Wallet; 'byok' uses only user-owned keys, subscriptions, or local models.
      */
     llm?: "managed" | "byok" | null
     /**
@@ -2146,6 +2147,10 @@ export type Config = {
      * Token budget for the verbatim recent tail during compaction (default: clamp(0.20*usable, 8000, 32000))
      */
     tailTokens?: number
+    /**
+     * How many of the most recent images are sent in full with each model request; older images become text placeholders that can be read again (default: 1)
+     */
+    recentImages?: number
   }
   experimental?: {
     /**
@@ -2262,6 +2267,7 @@ export type Model = {
   }
   pricing?: {
     upstream_provider: "anthropic" | "gemini" | "xai" | "meta" | "openrouter"
+    funding_fee_bps?: number
     audited_at?: string
     source_url?: string
   }
@@ -2955,6 +2961,7 @@ export type AccountGetResponses = {
     error?: string
     user?: unknown
     balance_usd: number | null
+    available_usd: number | null
     billing_mode: {
       mode: "byok" | "managed"
       balance_cents: number
@@ -9510,6 +9517,7 @@ export type SettingsWalletGetResponses = {
   200: {
     signedIn: boolean
     balanceUsd: number | null
+    availableUsd: number | null
     balanceRedacted?: boolean
     accessVerified?: boolean
     billingMode: "managed" | "byok" | null
@@ -9520,7 +9528,7 @@ export type SettingsWalletGetResponses = {
       activationAuthorizationUsd: number
       reloadThresholdUsd: number
       reloadAmountUsd: number
-      serviceMarginPercent: number
+      fundingFeePercent: number
       processingFeeDisclosedSeparately: boolean
       reloadControlledByAce: boolean
     }
@@ -12539,6 +12547,10 @@ export type ProviderListData = {
   path?: never
   query?: {
     directory?: string
+    /**
+     * Re-read managed model pricing now, skipping its cache and failure cooldown
+     */
+    refresh?: "true" | "false"
   }
   url: "/provider"
 }

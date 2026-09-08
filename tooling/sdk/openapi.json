@@ -500,6 +500,16 @@
                         }
                       ]
                     },
+                    "available_usd": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "billing_mode": {
                       "anyOf": [
                         {
@@ -650,6 +660,7 @@
                     "refreshing",
                     "refreshed_at",
                     "balance_usd",
+                    "available_usd",
                     "billing_mode",
                     "funding_context",
                     "credential"
@@ -23402,6 +23413,16 @@
                         }
                       ]
                     },
+                    "availableUsd": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "balanceRedacted": {
                       "type": "boolean"
                     },
@@ -23446,7 +23467,7 @@
                           "type": "number",
                           "exclusiveMinimum": 0
                         },
-                        "serviceMarginPercent": {
+                        "fundingFeePercent": {
                           "type": "number",
                           "minimum": 0
                         },
@@ -23461,7 +23482,7 @@
                         "activationAuthorizationUsd",
                         "reloadThresholdUsd",
                         "reloadAmountUsd",
-                        "serviceMarginPercent",
+                        "fundingFeePercent",
                         "processingFeeDisclosedSeparately",
                         "reloadControlledByAce"
                       ]
@@ -23526,6 +23547,7 @@
                   "required": [
                     "signedIn",
                     "balanceUsd",
+                    "availableUsd",
                     "billingMode",
                     "managedSupported",
                     "managedUnlocked",
@@ -31251,7 +31273,7 @@
           }
         ],
         "summary": "Resynchronize a research session",
-        "description": "Returns durable run receipts, an event cursor and live pending decisions belonging to this server process. Replayed decision events are historical; only pending requests in a fresh snapshot are actionable.",
+        "description": "Returns durable run receipts, an event cursor and live pending decisions belonging to this server process, including decisions raised by delegated child sessions of this session. Replayed decision events are historical; only pending requests in a fresh snapshot are actionable.",
         "responses": {
           "200": {
             "description": "Runtime snapshot",
@@ -31921,6 +31943,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "refresh",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "Re-read managed model pricing now, skipping its cache and failure cooldown"
           }
         ],
         "summary": "List providers",
@@ -52698,6 +52732,9 @@
             "properties": {
               "refreshed_at": {
                 "type": "number"
+              },
+              "error": {
+                "type": "string"
               }
             },
             "required": [
@@ -57793,7 +57830,7 @@
                 ]
               },
               "connectTimeout": {
-                "description": "Maximum wait for provider response headers in milliseconds, including connection setup and upstream admission. Defaults to 120000 (2 minutes). Set false to disable.",
+                "description": "Maximum wait for provider response headers in milliseconds, including connection setup and upstream admission. Defaults to 300000 (5 minutes), and to disabled for local endpoints (loopback or .local base URLs and the ollama, lmstudio, llamacpp, vllm and jan providers), which send headers only after prompt processing. Set false to disable.",
                 "anyOf": [
                   {
                     "type": "integer",
@@ -58117,7 +58154,7 @@
             "type": "object",
             "properties": {
               "llm": {
-                "description": "How LLM inference is paid for. 'managed' uses Ace Credits; 'byok' uses only user-owned keys, subscriptions, or local models.",
+                "description": "How LLM inference is paid for. 'managed' pays from the purchased Wallet; 'byok' uses only user-owned keys, subscriptions, or local models.",
                 "anyOf": [
                   {
                     "type": "string",
@@ -58407,6 +58444,12 @@
                 "description": "Token budget for the verbatim recent tail during compaction (default: clamp(0.20*usable, 8000, 32000))",
                 "type": "integer",
                 "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "recentImages": {
+                "description": "How many of the most recent images are sent in full with each model request; older images become text placeholders that can be read again (default: 1)",
+                "type": "integer",
+                "minimum": 0,
                 "maximum": 9007199254740991
               }
             }
@@ -58795,6 +58838,9 @@
                   "meta",
                   "openrouter"
                 ]
+              },
+              "funding_fee_bps": {
+                "type": "number"
               },
               "audited_at": {
                 "type": "string"

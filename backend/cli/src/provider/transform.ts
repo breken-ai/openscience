@@ -4,6 +4,7 @@ import type { JSONSchema } from "zod/v4/core"
 import type { Provider } from "./provider"
 import type { ModelsDev } from "./models"
 import { normalizeDeepSeekToolSchema } from "./tool-schema"
+import { isAtlasProxyURL } from "../openscience/synced-env-policy"
 import { iife } from "@synsci/util/iife"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
@@ -303,14 +304,24 @@ export namespace ProviderTransform {
         // catalog (e.g. the synthetic OpenRouter model) even though the model
         // is flagged attachment-capable. Fall back to the coarse `attachment`
         // capability for image/pdf only — audio/video stay gated on their own
-        // modality flag.
+        // modality flag. The managed gateway's flags are authoritative (its
+        // envelope refuses document parts with 422), so no fallback there.
+        const managed = isAtlasProxyURL(model.api.url)
         if (
           model.capabilities.input[modality] ||
-          (model.capabilities.attachment && (modality === "image" || modality === "pdf"))
+          (!managed && model.capabilities.attachment && (modality === "image" || modality === "pdf"))
         )
           return part
 
         const name = filename ? `"${filename}"` : modality
+        // A document on the managed route is not an error the user must be
+        // told about: the text can still reach the model once it is on disk
+        // (a project file, or a path the user names) through the tools.
+        if (managed && modality === "pdf")
+          return {
+            type: "text" as const,
+            text: `[Attached PDF ${name} cannot be sent to this model as a document. If its contents are needed, extract the text locally from the file on disk (for example with the liteparse skill's \`lit\` CLI) and read the result, or ask the user for its path or a text export.]`,
+          }
         return {
           type: "text" as const,
           text: `ERROR: Cannot read ${name} (this model does not support ${modality} input). Inform the user.`,
@@ -994,12 +1005,18 @@ export namespace ProviderTransform {
       }
     }
 
-    if (
-      (input.model.api.npm === "@ai-sdk/anthropic" || input.model.api.npm === "@ai-sdk/google-vertex/anthropic") &&
-      /^claude-(?:opus|sonnet|fable|mythos)-[5-9]\b/.test(input.model.api.id)
-    ) {
-      result["thinking"] = { type: "adaptive" }
-      result["effort"] = "high"
+    if (input.model.api.npm === "@ai-sdk/anthropic" || input.model.api.npm === "@ai-sdk/google-vertex/anthropic") {
+      const nativeID = input.model.api.id.toLowerCase().split("/").at(-1) ?? ""
+      // Opus 4.7/4.8 and the 5+ generation steer depth through effort. Opus
+      // and Sonnet 4.6 accept adaptive thinking but keep the classic budget
+      // ladder for explicit variants, so their default request names no effort
+      // and no budget. Without `thinking` these models answer without reasoning.
+      if (/^claude-(?:opus|sonnet|fable|mythos)-[5-9]\b/.test(nativeID) || /^claude-opus-4[.-][78]\b/.test(nativeID)) {
+        result["thinking"] = { type: "adaptive" }
+        result["effort"] = "high"
+      } else if (/^claude-(?:opus|sonnet)-4[.-]6\b/.test(nativeID)) {
+        result["thinking"] = { type: "adaptive" }
+      }
     }
 
     // OpenRouter-routed gpt-5 (e.g. "openai/gpt-5") is handled by the unified
