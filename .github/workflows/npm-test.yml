@@ -385,7 +385,7 @@ jobs:
           cat "$RUNNER_TEMP/openscience-server.log" || true
           cat "$RUNNER_TEMP/openscience-fake-model.log" || true
       - name: Upload packaged E2E artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-test-packaged-e2e-${{ github.run_attempt }}
