@@ -881,10 +881,12 @@ export default function Page(): JSX.Element {
   } = {}
   let chatElement: HTMLDivElement | undefined
   let contentElement: HTMLDivElement | undefined
+  let historyVersion = 0
   const [historyLoading, setHistoryLoading] = createSignal(false)
 
   const loadOlderMessages = async () => {
     const sessionID = params.id
+    const scope = sessionKey()
     const scroller = chatElement
     if (!sessionID || !scroller || historyLoading()) return
 
@@ -895,10 +897,18 @@ export default function Page(): JSX.Element {
     const offset = anchor ? anchor.getBoundingClientRect().top - top : 0
     const height = scroller.scrollHeight
     cancelRestoration()
+    const version = historyVersion
     setHistoryLoading(true)
     try {
       await sync.session.history.loadMore(sessionID)
       const restore = () => {
+        if (scope !== sessionKey() || chatElement !== scroller || !scroller.isConnected) return
+        // Loading history must not undo a newer navigation or reading intent.
+        // If the reader explicitly resumed following, include the late prepend.
+        if (version !== historyVersion) {
+          if (!chatScroll.userScrolled()) chatScroll.forceScrollToBottom()
+          return
+        }
         const row = anchorID
           ? scroller.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchorID)}"]`)
           : undefined
@@ -923,6 +933,7 @@ export default function Page(): JSX.Element {
 
   const cancelRestoration = () => {
     restoration.target = undefined
+    historyVersion++
   }
 
   const followLatest = () => {
@@ -957,7 +968,7 @@ export default function Page(): JSX.Element {
     const hasMessages = messages().length > 0
     if (restoration.initialized !== scope) {
       restoration.initialized = undefined
-      restoration.target = undefined
+      cancelRestoration()
     }
     if (!hasMessages || restoration.initialized === scope) return
     restoration.initialized = scope
@@ -1210,6 +1221,11 @@ export default function Page(): JSX.Element {
                       }}
                       onWheel={cancelRestoration}
                       onPointerDown={cancelRestoration}
+                      onTouchMove={cancelRestoration}
+                      onKeyDown={(event) => {
+                        if (["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End", " "].includes(event.key))
+                          cancelRestoration()
+                      }}
                       onClick={chatScroll.handleInteraction}
                       class="atlas-scroll atlas-chat-scroll session-scroller"
                       style={{

@@ -10,6 +10,11 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- Keep delayed history loading from undoing a newer **Jump to Latest**, send, or
+  reading position; discard scroll restoration after switching conversations.
+- Publish the official Homebrew tap with a credential scoped to that repository,
+  verified platform checksums, and idempotent formula updates. Automatically keep
+  each draft release's Windows signing disclosure consistent with its build.
 - Keep the conversation mounted while checking output files or refreshing compute
   status, so sending a message cannot reset the chat to the top. Sending and
   **Jump to Latest** follow the latest response; incoming activity preserves the

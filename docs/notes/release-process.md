@@ -60,6 +60,8 @@ never bump a version in a pull request, and add user-visible changes to the
    Windows Artifact Signing runs when all six signing configuration values are
    present. Until setup is complete, the Windows installer is published unsigned
    with a workflow warning naming the missing values and a release disclosure.
+   The draft-note step adds or removes that disclosure from the actual signing
+   decision and preserves the source marker and authored release notes.
    Once configured, signing or signature-verification failures block publication.
    Ad-hoc-signed macOS development packages must never be attached to a stable
    update release.
@@ -76,9 +78,9 @@ never bump a version in a pull request, and add user-visible changes to the
    cleanup, and injects a safe health failure to prove rollback → uploads and
    verifies the checksum manifests → verifies the Linux x64 and ARM64 npm
    wrappers on native runners → publishes the CLI, SDK, plugin, and launcher
-   packages to npm with provenance → attempts the Homebrew tap update → makes
-   the release public only after every updater lifecycle and publication gate
-   succeeds → records an npm deployment. If no older digest-bound signed stable
+   packages to npm with provenance → makes the release public only after every
+   updater lifecycle and publication gate succeeds → attempts the Homebrew tap
+   update using the now-public archive URLs → records an npm deployment. If no older digest-bound signed stable
    updater ZIP exists for an architecture, the release fails closed.
 
    The publish job commits the generated package-version changes. It pushes that
@@ -170,6 +172,23 @@ are outside this signing path.
 Signing identifies the publisher, but new downloads can still display
 [SmartScreen reputation warnings](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 Do not claim that signing immediately removes every Windows warning.
+
+## Homebrew publication
+
+The official tap is `synthetic-sciences/homebrew-tap`; its root `openscience.rb`
+is generated from all four macOS/Linux x64/ARM64 archive hashes. Verify the tap
+commit and formula version as part of release completion, since a tap failure is
+reported separately from an already-public npm/desktop release.
+
+Configure a write-enabled SSH deploy key on that tap only, and store its private
+key in the OpenScience repository's `HOMEBREW_TAP_SSH_KEY` secret. The publisher
+uses temporary mode-0600 key files, GitHub host keys obtained over HTTPS, strict
+host verification and an isolated Git environment, then removes local key files.
+It never stores credentials in clone URLs. A dedicated `HOMEBREW_TAP_TOKEN`
+remains supported for existing setups; the deploy key takes precedence.
+
+Unchanged formulas do not create commits. Updates use a normal non-force push,
+and the publish log records the resulting tap commit for independent checking.
 
 ## Isolated npm test installs
 

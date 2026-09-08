@@ -4,6 +4,7 @@ import { writeFileSync } from "node:fs"
 import path from "node:path"
 import { test, expect } from "./fixtures"
 import { openFilesSources, promptSelector } from "./utils"
+import { SESSION_MESSAGE_CHUNK } from "../src/context/session-hydration"
 
 test.skip(process.env.OPENSCIENCE_E2E_FAKE_MODEL !== "1", "requires the isolated deterministic model")
 
@@ -52,6 +53,169 @@ async function dragInspector(page: Page, distance: number, verify: () => Promise
   }
   await expect(page.locator("[data-pane-resize-shield]")).toHaveCount(0)
   expect(Math.abs(Number(await handle.getAttribute("aria-valuenow")) - before)).toBeGreaterThan(100)
+}
+
+for (const intent of ["reading", "jump", "navigate"] as const) {
+  test(`delayed earlier history respects ${intent} intent`, async ({ page, sdk, gotoSession }) => {
+    const session = await sdk.session.create({ title: `History ${intent}` }).then((result) => result.data)
+    const other = await sdk.session.create({ title: `Other history ${intent}` }).then((result) => result.data)
+    if (!session || !other) throw new Error("The isolated history sessions were not created")
+    const release = Promise.withResolvers<void>()
+    let pending = false
+    let delivered = false
+    let closing = false
+    try {
+      const reply = await sdk.session
+        .prompt({
+          sessionID: session.id,
+          model: { providerID: "e2e", modelID: "echo" },
+          parts: [{ type: "text", text: "Seed the isolated history fixture." }],
+        })
+        .then((result) => result.data)
+      const source = await sdk.session
+        .messages({ sessionID: session.id })
+        .then((result) => result.data?.find((message) => message.info.role === "user")?.info)
+      if (!reply || source?.role !== "user") throw new Error("The deterministic history fixture is missing")
+      const transcript = (sessionID: string, first: number, count: number, label: string, paragraphs: number) => {
+        const parentID = `msg_00000000${String(first).padStart(5, "0")}History`
+        return Array.from({ length: count }, (_, index) => {
+          const id = `msg_00000000${String(first + index).padStart(5, "0")}History`
+          const created = source.time.created - 100_000 + first + index
+          const info: UserMessage | AssistantMessage =
+            index === 0
+              ? { ...source, sessionID, id, time: { created } }
+              : { ...reply.info, sessionID, id, parentID, time: { created, completed: created + 1 }, finish: "stop" }
+          const parts: Part[] =
+            index === 0 || index === count - 1
+              ? [
+                  {
+                    type: "text",
+                    id: `prt_${id}`,
+                    sessionID,
+                    messageID: id,
+                    text:
+                      index === 0
+                        ? `${label} question.`
+                        : `## ${label}\n\n` +
+                          Array.from(
+                            { length: paragraphs },
+                            (_, paragraph) =>
+                              `${label} observation ${paragraph}: preserve the measured results, uncertainty and experimental controls while reviewing this history.`,
+                          ).join("\n\n"),
+                  },
+                ]
+              : []
+          return { info, parts }
+        })
+      }
+      // A full message window exposes the real Load earlier messages action.
+      // Most assistant steps have no prose, keeping this pagination fixture small.
+      const recent = transcript(session.id, 1000, SESSION_MESSAGE_CHUNK, "Current history", 45)
+      const earlier = transcript(session.id, 10, 2, "Earlier history", 20)
+      const otherMessages = transcript(other.id, 2000, 2, "Other conversation", 20)
+      await page.route(new RegExp(`/session/${session.id}/message(?:\\?|$)`), async (route) => {
+        const limit = Number(new URL(route.request().url()).searchParams.get("limit"))
+        if (limit > SESSION_MESSAGE_CHUNK) {
+          pending = true
+          await release.promise
+        }
+        if (closing) return route.abort()
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(limit > SESSION_MESSAGE_CHUNK ? [...earlier, ...recent] : recent),
+        })
+        if (limit > SESSION_MESSAGE_CHUNK) delivered = true
+      })
+      await page.route(new RegExp(`/session/${other.id}/message(?:\\?|$)`), (route) =>
+        route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(otherMessages) }),
+      )
+      if (intent === "navigate") {
+        // Warm the destination first; revisiting the source would correctly
+        // request a larger reconnect window before the pagination under test.
+        await gotoSession(other.id)
+        await expect(page.getByRole("heading", { name: "Other conversation", exact: true })).toBeVisible()
+        await page.getByRole("button", { name: session.title, exact: true }).click()
+      } else {
+        await gotoSession(session.id)
+      }
+      await expect(page.getByRole("heading", { name: "Current history", exact: true })).toBeVisible()
+      await page.evaluate(() => document.fonts.ready)
+      const scroller = page.locator(".session-scroller")
+      await scroller.evaluate((element) => {
+        element.scrollTop = 0
+        element.dispatchEvent(new Event("scroll"))
+      })
+      const anchor = page.locator(`[data-message-id="${recent[0].info.id}"]`)
+      const offset = await anchor.evaluate(
+        (element) =>
+          element.getBoundingClientRect().top - element.closest(".session-scroller")!.getBoundingClientRect().top,
+      )
+      await page.getByRole("button", { name: "Load earlier messages", exact: true }).click()
+      await expect.poll(() => pending).toBe(true)
+      const original = await scroller.elementHandle()
+      if (intent === "jump") await page.getByRole("button", { name: "Jump to Latest", exact: true }).click()
+      if (intent === "navigate") {
+        await page.locator(`[data-session-tab="${other.id}"]`).click()
+        await expect(page.getByRole("heading", { name: "Other conversation", exact: true })).toHaveCount(1)
+        await scroller.evaluate((element) => {
+          element.scrollTop = 450
+          element.dispatchEvent(new Event("scroll"))
+        })
+      }
+      await settleLayout(page)
+      const before = await scroller.evaluate((element) => ({ top: element.scrollTop, height: element.scrollHeight }))
+      release.resolve()
+      await expect.poll(() => delivered).toBe(true)
+      if (intent !== "navigate")
+        await expect(page.getByRole("heading", { name: "Earlier history", exact: true })).toHaveCount(1)
+      // In another session there is no new history heading to await. Sample
+      // consecutive paints so a late parsed response and both restore frames
+      // cannot land just after a single final-position assertion.
+      const frames = await scroller.evaluate(
+        (element) =>
+          new Promise<number[]>((resolve) => {
+            const values: number[] = []
+            const sample = () => {
+              values.push(element.scrollTop)
+              if (values.length === 15) resolve(values)
+              else requestAnimationFrame(sample)
+            }
+            requestAnimationFrame(sample)
+          }),
+      )
+      const after = await scroller.evaluate((element) => ({
+        top: element.scrollTop,
+        height: element.scrollHeight,
+        remaining: element.scrollHeight - element.clientHeight - element.scrollTop,
+      }))
+      const evidence = test.info().outputPath(`history-${intent}.json`)
+      const sameScroller = await original!.evaluate(
+        (element) => element === document.querySelector(".session-scroller"),
+      )
+      await original!.dispose()
+      writeFileSync(evidence, JSON.stringify({ intent, before, after, offset, frames, sameScroller }))
+      await test.info().attach(`history-${intent}.json`, { path: evidence, contentType: "application/json" })
+      if (intent === "reading") {
+        const restored = await anchor.evaluate(
+          (element) =>
+            element.getBoundingClientRect().top - element.closest(".session-scroller")!.getBoundingClientRect().top,
+        )
+        expect(Math.abs(restored - offset)).toBeLessThanOrEqual(2)
+      }
+      if (intent === "jump") expect(after.remaining, JSON.stringify({ before, after })).toBeLessThanOrEqual(2)
+      if (intent === "navigate")
+        expect(
+          Math.max(...frames.map((top) => Math.abs(top - before.top))),
+          JSON.stringify({ before, after, frames, sameScroller }),
+        ).toBeLessThanOrEqual(2)
+    } finally {
+      closing = true
+      release.resolve()
+      await sdk.session.delete({ sessionID: session.id }).catch(() => undefined)
+      await sdk.session.delete({ sessionID: other.id }).catch(() => undefined)
+    }
+  })
 }
 
 for (const position of ["bottom", "history"] as const) {
