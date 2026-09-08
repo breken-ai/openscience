@@ -3,6 +3,7 @@ import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { ProcessIdentity } from "../process/process-identity"
+import { AtomicRename } from "../util/atomic-rename"
 
 /**
  * Cross-process drain barrier used only for data-root relocation.
@@ -56,9 +57,6 @@ export namespace DataRootBarrier {
 
   const pause = 20
   const wait = 30_000
-  const replaceWait = 2_000
-  const replacePause = 10
-  const replaceMaxPause = 100
 
   /** Point the barrier at a data root. Boot configures the process once;
    * callers that swap the root temporarily (a relocation rehearsal, a test
@@ -186,24 +184,6 @@ export namespace DataRootBarrier {
       .catch(() => undefined)
   }
 
-  function replaceable(error: NodeJS.ErrnoException, windows: boolean) {
-    return windows && (error.code === "EPERM" || error.code === "EACCES" || error.code === "EBUSY")
-  }
-
-  async function replace(
-    source: string,
-    destination: string,
-    windows: boolean,
-    deadline = Date.now() + replaceWait,
-    delay = replacePause,
-  ): Promise<void> {
-    return fs.rename(source, destination).catch(async (error: NodeJS.ErrnoException) => {
-      if (!replaceable(error, windows) || Date.now() >= deadline) throw error
-      await Bun.sleep(Math.min(delay, Math.max(0, deadline - Date.now())))
-      return replace(source, destination, windows, deadline, Math.min(delay * 2, replaceMaxPause))
-    })
-  }
-
   async function exactOwner(value?: Owner): Promise<Owner> {
     if (value) {
       if (!Number.isSafeInteger(value.pid) || value.pid <= 0 || !/^[a-f0-9]{64}$/.test(value.identity)) {
@@ -309,7 +289,7 @@ export namespace DataRootBarrier {
                 // Windows can reject replacement while a scanner holds a
                 // conflicting destination handle. Retrying the same atomic
                 // update keeps the old complete marker authoritative.
-                await replace(temporary, marker, windows)
+                await AtomicRename.replace(temporary, marker, windows)
               } catch (error) {
                 await replacement.close().catch(() => undefined)
                 await fs.rm(temporary, { force: true }).catch(() => undefined)

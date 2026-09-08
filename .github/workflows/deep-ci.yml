@@ -160,6 +160,7 @@ jobs:
               test/global/data-dir.test.ts
               test/process/windows-job.test.ts
               test/compute/local-python-runtime.test.ts
+              test/compute/jobs-persistence.test.ts
               test/global/data-root.test.ts
               test/openscience-env.test.ts
               test/file/safe-io.test.ts
