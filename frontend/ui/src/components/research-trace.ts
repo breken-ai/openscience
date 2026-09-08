@@ -48,7 +48,7 @@ export function traceLabel(family: TraceFamily, count: number) {
     return `Reviewed ${count} ${count === 1 ? "file or code search" : "files and code searches"}`
   if (family === "sources") return `Checked ${count} external ${count === 1 ? "source" : "sources"}`
   if (family === "commands") return `Ran ${count} build or verification ${count === 1 ? "step" : "steps"}`
-  if (family === "changes") return `Updated ${count} ${count === 1 ? "file" : "files"}`
+  if (family === "changes") return `Recorded ${count} change ${count === 1 ? "operation" : "operations"}`
   if (family === "images") return `Generated ${count} ${count === 1 ? "image" : "images"}`
   if (family === "skills") return `Loaded ${count} ${count === 1 ? "skill" : "skills"}`
   return `Completed ${count} research ${count === 1 ? "operation" : "operations"}`

@@ -25,6 +25,7 @@ import { SubtaskAttachments } from "@/session/subtask-attachments"
 import { SessionWorkspace } from "@/session/workspace"
 import { TaskEvidence } from "./task-evidence"
 import { PayloadIntegrity } from "./payload-integrity"
+import { CredentialRevocation } from "@/credentials/revocation"
 
 export const DELEGATION_PROFILES = ["explore", "execute"] as const
 export const DELEGATION_SPECIALISTS = ["biology", "physics", "ml"] as const
@@ -324,7 +325,8 @@ export function taskText(messages: MessageV2.WithParts[], previous: Set<string>)
 
 export type TaskOutcome = {
   outcome: "completed" | "partial" | "error"
-  stopReason: "completed" | "max_steps" | "tool_failures" | "tool_partial" | "provider_error" | "empty_handoff"
+  stopReason:
+    "completed" | "max_steps" | "tool_failures" | "tool_partial" | "provider_error" | "cancelled" | "empty_handoff"
 }
 
 /**
@@ -355,6 +357,13 @@ export function classifyTaskOutcome(input: {
   failedToolCalls?: number
   partialToolCalls?: number
 }): TaskOutcome {
+  if (
+    MessageV2.AbortedError.isInstance(input.error) ||
+    CredentialRevocation.interruption(input.error) !== undefined ||
+    (input.error instanceof Error && input.error.name === "AbortError")
+  ) {
+    return { outcome: "partial", stopReason: "cancelled" }
+  }
   if (input.error || input.finish === "content-filter") {
     return { outcome: input.hasText ? "partial" : "error", stopReason: "provider_error" }
   }
@@ -716,13 +725,15 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 ? ["[One or more child tool operations remain partial or unsettled; treat this as a partial result.]"]
                 : taskOutcome.stopReason === "provider_error"
                   ? ["[Child stopped on a provider error; its usable partial result follows.]"]
-                  : taskOutcome.stopReason === "empty_handoff"
-                    ? ["[Child ended without a textual handoff; treat this result as incomplete.]"]
-                    : failedToolCalls > 0
-                      ? [
-                          `[Child returned a completed handoff with ${failedToolCalls} failed tool ${failedToolCalls === 1 ? "attempt" : "attempts"}. Review its limitations; the failed attempts remain recorded in the child session.]`,
-                        ]
-                      : []),
+                  : taskOutcome.stopReason === "cancelled"
+                    ? ["[Child was cancelled; completed actions and usable partial evidence follow.]"]
+                    : taskOutcome.stopReason === "empty_handoff"
+                      ? ["[Child ended without a textual handoff; treat this result as incomplete.]"]
+                      : failedToolCalls > 0
+                        ? [
+                            `[Child returned a completed handoff with ${failedToolCalls} failed tool ${failedToolCalls === 1 ? "attempt" : "attempts"}. Review its limitations; the failed attempts remain recorded in the child session.]`,
+                          ]
+                        : []),
           handoff.text,
           TaskEvidence.describe(evidence),
         ]

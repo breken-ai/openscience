@@ -1841,7 +1841,7 @@ export type ProviderConfig = {
      */
     timeout?: number | false
     /**
-     * Optional maximum provider response-body inactivity in milliseconds. Disabled by default. A configured deadline cancels even a healthy but quiet generation; set false to disable.
+     * Maximum provider response-body inactivity in milliseconds. Remote endpoints default to 1800000 (30 minutes); local endpoints (loopback or .local base URLs and bundled local providers) default to disabled. Set false to disable.
      */
     idleTimeout?: number | false
     /**

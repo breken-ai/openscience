@@ -25,7 +25,7 @@ export const dict = {
   "ui.sessionTurn.status.gatheringThoughts": "Writing response",
   "ui.sessionTurn.status.consideringNextSteps": "Preparing next step",
   "ui.sessionTurn.progress.connecting": "Sending request to {{model}}…",
-  "ui.sessionTurn.progress.stillConnecting": "Waiting for {{model}} to accept the request ({{seconds}}s)",
+  "ui.sessionTurn.progress.stillConnecting": "Waiting for a response from {{model}} ({{seconds}}s)",
   "ui.sessionTurn.progress.waitingFirstToken": "Waiting for output from {{model}} ({{seconds}}s)",
   "ui.sessionTurn.progress.streaming": "Receiving from {{model}}…",
   "ui.sessionTurn.progress.conflictWait": "An earlier attempt is still running; waiting ({{seconds}}s)",
@@ -38,7 +38,7 @@ export const dict = {
   "ui.sessionTurn.progress.stalledHint":
     "The response is still open. You can wait or stop it; stopping does not undo completed work.",
   "ui.sessionTurn.stop.outputs": "Outputs kept",
-  "ui.sessionTurn.stop.noOutputs": "No files were written in this turn.",
+  "ui.sessionTurn.stop.noOutputs": "No file outputs were confirmed for this turn.",
   "ui.sessionTurn.stop.pending": "Left pending",
   "ui.sessionTurn.stop.interrupted": "interrupted",
   "ui.sessionTurn.stop.notStarted": "not started",

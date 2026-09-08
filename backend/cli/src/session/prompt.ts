@@ -1996,7 +1996,7 @@ export namespace SessionPrompt {
         inputSchema: toolInputSchema(input.model, item),
         async execute(args, options) {
           const ctx = context(args, options)
-          return input.processor.executeTool(options.toolCallId, args, () => item.execute(args, ctx))
+          return input.processor.executeTool(options.toolCallId, item.id, args, () => item.execute(args, ctx))
         },
       })
     }
@@ -2039,7 +2039,7 @@ export namespace SessionPrompt {
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
         const ctx = context(args, opts)
-        return input.processor.executeTool(opts.toolCallId, args, async () => {
+        return input.processor.executeTool(opts.toolCallId, key, args, async () => {
           return PlanMode.run(key, ctx.agent, async () => {
             await Plugin.trigger(
               "tool.execute.before",

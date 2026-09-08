@@ -256,6 +256,23 @@ describe("delegation summaries", () => {
     ])
   })
 
+  test("labels change calls as operations when child summaries contain no file receipts", () => {
+    const groups = summarizeTaskActivity([
+      { id: "1", tool: "apply_patch", state: { status: "completed", title: "Update two files" } },
+      { id: "2", tool: "apply_patch", state: { status: "completed", title: "Update two more files" } },
+    ])
+
+    expect(groups).toEqual([
+      {
+        family: "changes",
+        count: 2,
+        failed: 0,
+        label: "Recorded 2 change operations",
+        detail: "Update two files · Update two more files",
+      },
+    ])
+  })
+
   test("removes the internal task metadata envelope from user-visible findings", () => {
     expect(
       stripTaskMetadata('Verified three citations.\n\n<task_metadata>{"session_id":"ses_child"}</task_metadata>'),

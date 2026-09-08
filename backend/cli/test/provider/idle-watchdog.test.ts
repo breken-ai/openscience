@@ -124,10 +124,16 @@ describe("provider activity watchdog", () => {
     expect(serialized).not.toContain("funding")
   })
 
-  test("bounds headers by default but makes response inactivity limits opt-in", () => {
+  test("selects a finite remote body deadline while preserving local and explicit escape hatches", () => {
     expect(Provider.resolveConnectTimeout(undefined)).toBe(300_000)
     expect(Provider.resolveIdleTimeout(undefined)).toBe(false)
     expect(Provider.resolveOutputIdleTimeout(undefined)).toBe(false)
+    expect(Provider.defaultIdleTimeout({ providerID: "openrouter", baseURL: "https://openrouter.ai/api/v1" })).toBe(
+      1_800_000,
+    )
+    expect(Provider.defaultIdleTimeout({ providerID: "ollama" })).toBe(false)
+    expect(Provider.defaultIdleTimeout({ providerID: "custom", baseURL: "http://127.0.0.1:11434/v1" })).toBe(false)
+    expect(Provider.defaultIdleTimeout({ providerID: "custom", baseURL: "http://inference.local/v1" })).toBe(false)
     expect(Provider.resolveConnectTimeout(false)).toBe(false)
     expect(Provider.resolveIdleTimeout(false)).toBe(false)
     expect(Provider.resolveOutputIdleTimeout(false)).toBe(false)
@@ -137,7 +143,7 @@ describe("provider activity watchdog", () => {
   })
 
   for (const partial of [false, true]) {
-    test(`default quiet response resumes after fifteen minutes ${partial ? "after partial output" : "before first output"}`, async () => {
+    test(`explicitly unbounded response resumes after fifteen minutes ${partial ? "after partial output" : "before first output"}`, async () => {
       const time = clock()
       const user = new AbortController()
       const transport = new AbortController()
@@ -169,7 +175,7 @@ describe("provider activity watchdog", () => {
             },
             "https://provider.test/no-network",
             { signal: user.signal },
-            { providerID: "test", modelID: "test", onTiming: (item) => timings.push(item) },
+            { providerID: "test", modelID: "test", idleTimeout: false, onTiming: (item) => timings.push(item) },
           ),
         )
         reader = response.body!.getReader()
@@ -206,7 +212,7 @@ describe("provider activity watchdog", () => {
     })
   }
 
-  test("default quiet response still cancels its reader immediately when the user stops", async () => {
+  test("explicitly unbounded response still cancels its reader immediately when the user stops", async () => {
     const time = clock()
     const user = new AbortController()
     const reason = new DOMException("User stopped", "AbortError")
@@ -223,7 +229,7 @@ describe("provider activity watchdog", () => {
           }),
         )
       },
-      { idleTimeout: undefined, connectTimeout: undefined },
+      { idleTimeout: false, connectTimeout: undefined },
       { signal: user.signal },
     )
     try {
@@ -501,6 +507,84 @@ describe("provider activity watchdog", () => {
     expect(timings[0].timeoutPhase).toBe("stream")
     expect(timings[0].firstBodyChunkAt).toBeDefined()
     expect(timings[0].lastBodyChunkAt).toBe(timings[0].firstBodyChunkAt)
+  })
+
+  test("the remote default stops a response that goes silent after its first body bytes", async () => {
+    const time = clock()
+    const idleTimeout = Provider.defaultIdleTimeout({
+      providerID: "openrouter",
+      baseURL: "https://openrouter.ai/api/v1",
+    })
+    const { response, timings } = watched(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(": response started\n\n"))
+            },
+          }),
+        ),
+      { idleTimeout },
+    )
+    try {
+      const reader = (await response).body!.getReader()
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe(": response started\n\n")
+      const pending = reader.read()
+      void pending.catch(() => {})
+      await time.advance(1_800_001)
+      await expect(pending).rejects.toMatchObject({ phase: "stream", timeoutMs: 1_800_000 })
+      expect(timings).toHaveLength(1)
+      expect(timings[0]).toMatchObject({
+        outcome: "idle_timeout",
+        timeoutPhase: "stream",
+        idleTimeoutMs: 1_800_000,
+      })
+    } finally {
+      time.restore()
+    }
+  })
+
+  test("raw private-reasoning and keepalive bytes reset the remote inactivity deadline", async () => {
+    const time = clock()
+    let source!: ReadableStreamDefaultController<Uint8Array>
+    let closed = false
+    const idleTimeout = Provider.defaultIdleTimeout({
+      providerID: "openrouter",
+      baseURL: "https://openrouter.ai/api/v1",
+    })
+    const { response, timings } = watched(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              source = controller
+            },
+          }),
+        ),
+      { idleTimeout },
+    )
+    try {
+      const reader = (await response).body!.getReader()
+      for (const activity of [
+        ": OPENROUTER PROCESSING\n\n",
+        'data: {"choices":[{"delta":{"reasoning_content":"[REDACTED]"}}]}\n\n',
+        ": still processing\n\n",
+      ]) {
+        const pending = reader.read()
+        await time.advance(1_200_000)
+        source.enqueue(encoder.encode(activity))
+        expect(new TextDecoder().decode((await pending).value)).toBe(activity)
+      }
+      source.close()
+      closed = true
+      expect((await reader.read()).done).toBe(true)
+      expect(timings).toHaveLength(1)
+      expect(timings[0]).toMatchObject({ outcome: "completed", idleTimeoutMs: 1_800_000 })
+      expect(timings[0].completedAt - timings[0].startedAt).toBeGreaterThan(1_800_000)
+    } finally {
+      if (!closed) source.close()
+      time.restore()
+    }
   })
 
   test("allows an active stream to run for multiple idle windows", async () => {

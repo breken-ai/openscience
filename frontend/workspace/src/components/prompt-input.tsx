@@ -285,10 +285,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const loadResearchAccess = async (projectID: string): Promise<ResearchAccessSnapshot> => {
     return projectAccess(projectID)
   }
-  const [researchAccess, researchAccessControls] = createResource(() => sdk.projectID || false, loadResearchAccess)
+  const [researchAccess, researchAccessControls] = createResource(
+    () => sdk.projectID || false,
+    async (projectID) => ({ projectID, value: await loadResearchAccess(projectID) }),
+  )
   const [researchAccessSaving, setResearchAccessSaving] = createSignal(false)
+  const currentResearchAccess = () => {
+    if (researchAccess.error) return
+    const current = researchAccess.latest
+    if (!current || current.projectID !== sdk.projectID) return
+    return current.value
+  }
   const selectedResearchAccess = createMemo(() => {
-    const current = researchAccess()
+    const current = currentResearchAccess()
     return current ? researchAccessMode(current) : DEFAULT_RESEARCH_ACCESS_MODE
   })
   const researchAccessLabel = createMemo(() => accessLabel(selectedResearchAccess()))
@@ -296,7 +305,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const applyResearchAccess = async (mode: ResearchAccessMode, target: HTMLButtonElement) => {
     target.focus()
     const projectID = sdk.projectID
-    const initial = researchAccess()
+    const initial = currentResearchAccess()
     if (!projectID || !initial || researchAccessSaving()) return
     if (researchAccessMode(initial) === mode) return
     if (mode === "full") {
@@ -317,7 +326,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mode, ...(mode === "ask" ? {} : { root: initial.root }) }),
       })
-      researchAccessControls.mutate(confirmed)
+      researchAccessControls.mutate({ projectID, value: confirmed })
       const effective = researchAccessMode(confirmed)
       if (effective !== mode) {
         showToast({
@@ -2931,8 +2940,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                     <span>
                                       <strong>{option.label}</strong>
                                       <small>
-                                        {option.value !== "full" && researchAccess()?.sandboxStatus.available === false
-                                          ? `Fail-closed until setup: ${researchAccess()?.sandboxStatus.reason ?? "sandbox backend not installed"}`
+                                        {option.value !== "full" &&
+                                        currentResearchAccess()?.sandboxStatus.available === false
+                                          ? `Fail-closed until setup: ${currentResearchAccess()?.sandboxStatus.reason ?? "sandbox backend not installed"}`
                                           : option.description}
                                       </small>
                                     </span>

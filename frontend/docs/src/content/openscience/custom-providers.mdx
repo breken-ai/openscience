@@ -98,12 +98,12 @@ Provider options support request deadlines in milliseconds:
 
 | Option | Default |
 | --- | --- |
-| `connectTimeout` | 120000: waiting for response headers. |
-| `idleTimeout` | Disabled; optionally bound silence between response-body chunks. |
+| `connectTimeout` | 300000 (5 minutes): waiting for response headers; disabled by default for local endpoints. |
+| `idleTimeout` | 1800000 (30 minutes) for remote endpoints; reset by every response-body chunk and disabled by default for local endpoints. |
 | `outputIdleTimeout` | Disabled; optionally bound the wait for readable output or tool-call activity. |
 | `timeout` | No total-duration limit by default. |
 
-An opened response keeps waiting by default, including when the model does not publish its reasoning. Use **Stop** to cancel your wait. To opt into a twenty-minute readable-output deadline, merge an override into that provider's options:
+Active remote responses keep running because keepalives and streamed private reasoning reset the body-activity deadline. Set `idleTimeout` to `false` if a remote provider legitimately stays byte-silent for longer than 30 minutes. Use **Stop** to cancel your wait. To opt into a twenty-minute readable-output deadline, merge an override into that provider's options:
 
 ```json
 {

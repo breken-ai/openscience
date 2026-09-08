@@ -59,14 +59,15 @@ export namespace Provider {
   const log = Log.create({ service: "provider" })
   const MAX_TIMER_MS = 2_147_483_647
   // Upstream admission on busy gateways and prefill on self-hosted servers
-  // both happen before the first response byte; two minutes cut off healthy
+  // both happen before the first response byte; short deadlines cut off healthy
   // long prompts. Local endpoints disable the deadline entirely (see
   // defaultConnectTimeout).
   export const DEFAULT_CONNECT_TIMEOUT_MS = 300_000
-  // A quiet response can still be generating private reasoning. Silence alone
-  // cannot distinguish that from a stalled provider, so response deadlines are
-  // opt-in; request progress and explicit cancellation remain active.
-  export const DEFAULT_IDLE_TIMEOUT_MS = false
+  // Raw body activity includes keepalives and private reasoning, so this only
+  // expires a remote response that has stopped producing bytes altogether.
+  // Local runtimes keep the deadline disabled because slow inference can be
+  // legitimately silent (see defaultIdleTimeout).
+  export const DEFAULT_REMOTE_IDLE_TIMEOUT_MS = 1_800_000
   export const DEFAULT_OUTPUT_IDLE_TIMEOUT_MS = false
 
   export type RequestContext = {
@@ -238,7 +239,7 @@ export namespace Provider {
   }
 
   export function resolveIdleTimeout(value: unknown): number | false {
-    return resolveTimeout(value, DEFAULT_IDLE_TIMEOUT_MS)
+    return resolveTimeout(value, false)
   }
 
   export function resolveOutputIdleTimeout(value: unknown): number | false {
@@ -1192,6 +1193,10 @@ export namespace Provider {
 
   export function defaultConnectTimeout(input: { providerID: string; baseURL?: unknown }): number | false {
     return localEndpoint(input) ? false : DEFAULT_CONNECT_TIMEOUT_MS
+  }
+
+  export function defaultIdleTimeout(input: { providerID: string; baseURL?: unknown }): number | false {
+    return localEndpoint(input) ? false : DEFAULT_REMOTE_IDLE_TIMEOUT_MS
   }
 
   /** Pin a user-owned key to a public endpoint when stale proxy config remains. */
@@ -2920,7 +2925,9 @@ export namespace Provider {
 
       const customFetch = options["fetch"]
       const tokenCommand = options["tokenCommand"] as string | undefined
-      const idleTimeout = options["idleTimeout"]
+      const idleTimeout =
+        options["idleTimeout"] ??
+        defaultIdleTimeout({ providerID: model.providerID, baseURL: options["baseURL"] ?? model.api.url })
       const connectTimeout =
         options["connectTimeout"] ??
         defaultConnectTimeout({ providerID: model.providerID, baseURL: options["baseURL"] ?? model.api.url })

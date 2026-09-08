@@ -919,3 +919,44 @@ test("canonical Bash outputs are receipts and later deletion removes an earlier 
   expect(writtenFiles([output], { canonicalOnly: true })).toEqual(["/project/evidence.json"])
   expect(writtenFiles([output, deleted], { canonicalOnly: true })).toEqual([])
 })
+
+test("delegated mutation evidence supplies exact unique file receipts after a partial stop", () => {
+  const task = {
+    type: "tool",
+    tool: "task",
+    state: {
+      status: "completed",
+      metadata: {
+        outcome: "partial",
+        evidence: {
+          mutations: [
+            { files: ["/project/application.py", "/project/backend.py"] },
+            {
+              files: ["/project/campaign.py", "/project/matrix.py", "/project/final.py", "/project/application.py"],
+              removed: ["/project/backend.py", "/project/draft.py"],
+            },
+            { files: [], removed: ["/project/campaign.py"] },
+            { files: ["relative.py", "/outside/ignored.py", 42] },
+          ],
+        },
+      },
+    },
+  }
+  const resolve = (path: string) => (path.startsWith("/project/") ? path : undefined)
+  const snapshot = {
+    type: "patch",
+    files: [
+      "/project/backend.py",
+      "/project/campaign.py",
+      "/project/draft.py",
+      "/project/final.py",
+      "/project/matrix.py",
+    ],
+  }
+
+  expect(writtenFiles([task, snapshot], { canonicalOnly: true, resolve })).toEqual([
+    "/project/application.py",
+    "/project/matrix.py",
+    "/project/final.py",
+  ])
+})

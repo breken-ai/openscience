@@ -1187,7 +1187,9 @@ describe("timeout recovery", () => {
       expect(card.getAttribute("data-state")).toBe("stopped")
       expect(card.getAttribute("data-reason")).toBe("timeout")
       expect(card.getAttribute("role")).toBe("status")
-      expect(card.querySelector('[data-slot="session-stop-receipt"]')?.textContent).toContain("No files were written")
+      expect(card.querySelector('[data-slot="session-stop-receipt"]')?.textContent).toContain(
+        "No file outputs were confirmed",
+      )
       expect(host.querySelector('[data-slot="reasoning-part-body"]')?.textContent).toContain(reason.text)
       expect(host.textContent).toContain(partial.text)
       expect(host.querySelector('[data-component="reasoning-part"]')?.getAttribute("data-live")).toBeNull()
@@ -1820,6 +1822,60 @@ describe("turns that ended early", () => {
     expect(card.querySelector('[data-slot="session-state-message"]')?.textContent).toBe(cause)
     expect(card.querySelector('[data-slot="session-stop-output"]')?.textContent).toBe("notes.md")
     expect(card.querySelector('[data-kind="pending"]')).toBeNull()
+  })
+
+  test("a stopped parent lists files confirmed by a delegated child's mutation evidence", async () => {
+    const message: AssistantMessage = {
+      ...assistant(Date.now()),
+      error: { name: "MessageAbortedError", data: { message: "The operation was aborted." } },
+    }
+    const task: ToolPart = {
+      id: "prt_stopped_task",
+      sessionID,
+      messageID: message.id,
+      type: "tool",
+      callID: "call_stopped_task",
+      tool: "task",
+      state: {
+        status: "completed",
+        input: { description: "Add comparison arm" },
+        title: "Add comparison arm",
+        output: "The worker was cancelled after completing four edits.",
+        metadata: {
+          sessionId: "ses_child",
+          outcome: "partial",
+          evidence: {
+            mutations: [
+              { files: ["/research/application.py", "/research/backend.py"] },
+              { files: ["/research/campaign.py", "/research/matrix.py"] },
+            ],
+          },
+        },
+        time: { start: 1_000, end: 2_000 },
+      },
+    }
+    const store: Store = {
+      ...empty(),
+      message: { [sessionID]: [user, message] },
+      part: { [user.id]: [], [message.id]: [task] },
+    }
+    const host = mount(
+      () =>
+        web.createComponent(markdown.MarkdownImages, {
+          resolve: (src) => src,
+          resolveFile: (path) => assets.workspaceAssetPath(path, "/research"),
+          resolveFileReceipt: assets.workspaceReceiptPath,
+          get children() {
+            return web.createComponent(turn.SessionTurn, { sessionID, messageID: user.id })
+          },
+        }),
+      store,
+    )
+    await ready(() => host.querySelector('[data-state="stopped"]') !== null)
+
+    const outputs = [...host.querySelectorAll('[data-slot="session-stop-output"]')].map((item) => item.textContent)
+    expect(outputs).toEqual(["application.py", "backend.py", "campaign.py", "matrix.py"])
+    expect(host.textContent).not.toContain("No file outputs were confirmed")
   })
 })
 
