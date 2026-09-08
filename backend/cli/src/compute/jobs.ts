@@ -2904,16 +2904,24 @@ export namespace ComputeJobs {
       Sandbox.cleanup(launch)
       throw error
     }
-    await output.close()
     if (!launched) {
+      await output.close()
       await deactivate(keyOf(scope.root, job.id))
       Sandbox.cleanup(launch)
       ready?.()
       return
     }
     const { proc, result, key } = launched
-    const completed = await result
-    await completeCredentialProcess(ledgerID)
+    // Keep inherited log handles alive until the gated payload and its owned
+    // descendants settle. In particular, Windows starts the payload only
+    // after durable Job Object registration has released the supervisor.
+    const completed = await result.finally(async () => {
+      try {
+        await completeCredentialProcess(ledgerID)
+      } finally {
+        await output.close()
+      }
+    })
     const captureResult = host
       ? undefined
       : await capture(job)

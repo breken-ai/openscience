@@ -177,7 +177,7 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
         const job = await ComputeJobs.start(
           {
             name: "Windows selected interpreter",
-            command: `printf '/fixture startup diagnostic\\n' >&2; python -c ${quote('import sys,json; json.dump({"executable":sys.executable,"version":sys.version.split()[0]},open("runtime-windows.json","w"))')}`,
+            command: `printf '/fixture startup diagnostic\\n' >&2; python -c ${quote('import sys,json; json.dump({"executable":sys.executable,"version":sys.version.split()[0]},open("runtime-windows.json","w")); print("runtime stdout sentinel",flush=True); print("runtime stderr sentinel",file=sys.stderr,flush=True)')}`,
             target: { kind: "local" },
             sessionID: session.id,
           },
@@ -198,7 +198,6 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
               log,
             }),
           ).toBe(true)
-          expect(log).toContain("/fixture startup diagnostic")
           const actual = await receipt.json()
           expect(await fs.realpath(actual.executable)).toBe(
             await fs.realpath(path.join(prefix, "Scripts", "python.exe")),
@@ -208,6 +207,17 @@ test.skipIf(process.platform !== "win32")("Windows login shell retains the selec
             executable: path.join(prefix, "Scripts", "python.exe"),
             version: actual.version,
           })
+          const logFile = path.join(options.root, "jobs", `${job.id}.log`)
+          const diagnostic = JSON.stringify({
+            shell: Shell.posix(),
+            logFile,
+            bytes: await fs.stat(logFile).then((stat) => stat.size),
+            direct: await fs.readFile(logFile, "utf8"),
+            events: await ComputeJobs.events(job.id, options),
+          })
+          expect(log, diagnostic).toContain("/fixture startup diagnostic")
+          expect(log, diagnostic).toContain("runtime stdout sentinel")
+          expect(log, diagnostic).toContain("runtime stderr sentinel")
         } finally {
           const current = await ComputeJobs.get(job.id, options)
           if (current && ["pending", "running"].includes(current.status)) await ComputeJobs.cancel(job.id, options)
