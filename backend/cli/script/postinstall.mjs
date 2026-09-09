@@ -221,14 +221,6 @@ function main() {
   }
 }
 
-export {
-  cpuSupportsAvx2,
-  detectMusl,
-  detectPlatformAndArch,
-  findBinary,
-  linuxArm64PageSizeProblem,
-  linuxKernelProblem,
-  platformPackageNames,
-}
+export { cpuSupportsAvx2, linuxArm64PageSizeProblem, linuxKernelProblem, platformPackageNames }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main()

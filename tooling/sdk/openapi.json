@@ -21347,20 +21347,6 @@
                         "done"
                       ]
                     },
-                    "desktop_onboarding_operations": {
-                      "default": {},
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096
-                      },
-                      "additionalProperties": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      }
-                    },
                     "atlas_enabled": {
                       "default": false,
                       "type": "boolean"
@@ -21510,20 +21496,6 @@
                         "connect",
                         "done"
                       ]
-                    },
-                    "desktop_onboarding_operations": {
-                      "default": {},
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096
-                      },
-                      "additionalProperties": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      }
                     },
                     "atlas_enabled": {
                       "default": false,
@@ -21734,93 +21706,6 @@
           {
             "lang": "js",
             "source": "import { createOpenScienceClient } from \"@synsci/sdk\"\n\nconst client = createOpenScienceClient()\nawait client.settings.preferences.update({\n  ...\n})"
-          }
-        ]
-      }
-    },
-    "/settings/preferences/onboarding-operation": {
-      "post": {
-        "operationId": "settings.preferences.onboardingOperation",
-        "summary": "Get or create the durable operation for an exact desktop onboarding draft",
-        "responses": {
-          "200": {
-            "description": "Stable onboarding operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "operation_id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    }
-                  },
-                  "required": [
-                    "operation_id"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "fingerprint": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  }
-                },
-                "required": [
-                  "fingerprint"
-                ]
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpenScienceClient } from \"@synsci/sdk\"\n\nconst client = createOpenScienceClient()\nawait client.settings.preferences.onboardingOperation({\n  ...\n})"
-          }
-        ]
-      },
-      "delete": {
-        "operationId": "settings.preferences.clearOnboardingOperation",
-        "summary": "Clear one completed desktop onboarding draft binding",
-        "responses": {
-          "204": {
-            "description": "Onboarding operation cleared"
-          }
-        },
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "fingerprint": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  }
-                },
-                "required": [
-                  "fingerprint"
-                ]
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpenScienceClient } from \"@synsci/sdk\"\n\nconst client = createOpenScienceClient()\nawait client.settings.preferences.clearOnboardingOperation({\n  ...\n})"
           }
         ]
       }

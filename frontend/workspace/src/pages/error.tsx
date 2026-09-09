@@ -3,11 +3,11 @@ import { Component, Show, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
-import { FONT_MONO, FONT_SANS } from "@/styles/tokens"
+import { FONT_SANS } from "@/styles/tokens"
 import { IconAlertCircle, IconCopy, IconRefresh } from "@/atlas/shared/Icon"
 import { updateController } from "@/components/settings/update-controller"
 
-export type InitError = {
+type InitError = {
   name: string
   data: Record<string, unknown>
 }
@@ -443,7 +443,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               cursor: "pointer",
               padding: "11px 13px",
               color: "var(--color-text-muted)",
-              "font-family": FONT_MONO,
+              "font-family": FONT_SANS,
               "font-size": "10px",
               "user-select": "none",
             }}
@@ -459,7 +459,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               "border-top": "1px solid var(--color-border)",
               background: "var(--color-bg)",
               color: "var(--color-text-muted)",
-              "font-family": FONT_MONO,
+              "font-family": FONT_SANS,
               "font-size": "10px",
               "line-height": 1.55,
               "white-space": "pre-wrap",
@@ -477,7 +477,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             "justify-content": "space-between",
             gap: "16px",
             color: "var(--color-text-faint)",
-            "font-family": FONT_MONO,
+            "font-family": FONT_SANS,
             "font-size": "10px",
           }}
         >

@@ -1,4 +1,4 @@
-export const artifactKinds = [
+const artifactKinds = [
   "dataset",
   "figure",
   "report",

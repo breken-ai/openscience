@@ -14,7 +14,7 @@ import { Button } from "@synsci/ui/button"
 import { TextField } from "@synsci/ui/text-field"
 import { MarkdownImages } from "@synsci/ui/markdown"
 import { useSDK } from "@/context/sdk"
-import { FONT_MONO, FONT_SANS } from "@/styles/tokens"
+import { FONT_SANS } from "@/styles/tokens"
 import { IconDownload, IconEdit, IconFile, IconMoreH, IconTrash } from "@/atlas/shared/Icon"
 import { toast } from "@/atlas/Toast"
 import { uiStore } from "@/atlas/store/ui"
@@ -589,7 +589,7 @@ const pre = (): JSX.CSSProperties => ({
   margin: 0,
   padding: "20px 18px 48px",
   color: "var(--text-strong)",
-  "font-family": FONT_MONO,
+  "font-family": FONT_SANS,
   "font-size": "12px",
   "line-height": 1.65,
   "white-space": "pre-wrap",

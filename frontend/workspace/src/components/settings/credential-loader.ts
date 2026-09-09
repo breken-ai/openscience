@@ -1,6 +1,6 @@
 import { settingsApi } from "./api"
 
-export type CredentialField = {
+type CredentialField = {
   name: string
   label: string
   type: "password" | "text" | "textarea"

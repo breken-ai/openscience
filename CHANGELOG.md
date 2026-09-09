@@ -8,16 +8,19 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
-- New first-run setup, shown once to every install from this release on: a centered card with four steps. Account (required, browser sign-up/sign-in or a pasted key), Ace (recommended, opens billing and continues when Ace is on), connect your own models (ChatGPT / Codex, Anthropic, OpenAI, OpenRouter, Firecrawl keys, Modal detection, with provider logos and inline key entry), and done. Project creation moved to the Projects page, whose empty state now offers **New project**. The terminal install runs the same four steps inline the first time `openscience` starts (`openscience init` repeats them); scripted, CI, and restarted launches skip it.
-
-- Linux supervised commands inherit blocking output handles so high-volume native tools do not abort with `EAGAIN` when their output pipe fills.
-
-- Oversized incomplete Bash output lines and private-key blocks are replaced with explicit redaction markers; provenance previews are redacted before clipping.
-
-- Keep launcher CPU fallback confined to a read-only startup probe, respect scientific-source cooldowns without early retries, preserve special characters in local file links, and verify upgrades when the old versioned executable remains on disk.
+## v2.0.73–v2.0.87 — 2026-09-09
 
 ### Added
 
+- New first-run setup, shown once to every install from this release on: a
+  centered card with four steps. Account (required, browser sign-up/sign-in or a
+  pasted key), Ace (recommended, opens billing and continues when Ace is on),
+  connect your own models (ChatGPT / Codex, Anthropic, OpenAI, OpenRouter,
+  Firecrawl keys, Modal detection, with provider logos and inline key entry),
+  and done. Project creation moved to the Projects page, whose empty state now
+  offers **New project**. The terminal install runs the same four steps inline
+  the first time `openscience` starts (`openscience init` repeats them);
+  scripted, CI, and restarted launches skip it.
 - **Fusion**, an opt-in way to run delegated work: the model you selected stays
   the lead and hands substantial, well-specified work to one persistent worker
   on the configured Worker model, which is resumed for every execute task
@@ -468,6 +471,15 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Fixed
 
+- Linux supervised commands inherit blocking output handles so high-volume
+  native tools do not abort with `EAGAIN` when their output pipe fills.
+- Oversized incomplete Bash output lines and private-key blocks are replaced
+  with explicit redaction markers; provenance previews are redacted before
+  clipping.
+- Keep launcher CPU fallback confined to a read-only startup probe, respect
+  scientific-source cooldowns without early retries, preserve special characters
+  in local file links, and verify upgrades when the old versioned executable
+  remains on disk.
 - Stop a repeated tool call before it runs: the third identical call used to
   execute while its approval card was still showing, and a deny only ended
   the turn afterwards. The check now sits in front of the tool itself and

@@ -2,7 +2,7 @@ import { type Component } from "solid-js"
 import { CredentialServices } from "./CredentialServices"
 import { PanelBody, PanelHeader, PanelScroll } from "./_shared"
 
-export const Credentials: Component = () => (
+const Credentials: Component = () => (
   <PanelScroll>
     <PanelHeader
       title="Credentials"

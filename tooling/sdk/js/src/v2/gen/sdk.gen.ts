@@ -355,9 +355,7 @@ import type {
   SettingsCredentialsSetResponses,
   SettingsNetworkGetResponses,
   SettingsNetworkSetResponses,
-  SettingsPreferencesClearOnboardingOperationResponses,
   SettingsPreferencesGetResponses,
-  SettingsPreferencesOnboardingOperationResponses,
   SettingsPreferencesUpdateResponses,
   SettingsScientificToolSetupErrors,
   SettingsScientificToolSetupResponses,
@@ -1877,58 +1875,6 @@ export class Preferences extends HeyApiClient {
     )
     return (options?.client ?? this.client).patch<SettingsPreferencesUpdateResponses, unknown, ThrowOnError>({
       url: "/settings/preferences",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Clear one completed desktop onboarding draft binding
-   */
-  public clearOnboardingOperation<ThrowOnError extends boolean = false>(
-    parameters: {
-      fingerprint: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "fingerprint" }] }])
-    return (options?.client ?? this.client).delete<
-      SettingsPreferencesClearOnboardingOperationResponses,
-      unknown,
-      ThrowOnError
-    >({
-      url: "/settings/preferences/onboarding-operation",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Get or create the durable operation for an exact desktop onboarding draft
-   */
-  public onboardingOperation<ThrowOnError extends boolean = false>(
-    parameters: {
-      fingerprint: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "fingerprint" }] }])
-    return (options?.client ?? this.client).post<
-      SettingsPreferencesOnboardingOperationResponses,
-      unknown,
-      ThrowOnError
-    >({
-      url: "/settings/preferences/onboarding-operation",
       ...options,
       ...params,
       headers: {

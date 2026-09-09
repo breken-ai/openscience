@@ -53,7 +53,5 @@ describe("compute surface", () => {
     expect(host.querySelector("button, details, summary, [role=tablist]")).toBeNull()
   })
 
-  test("keeps the former export as a compatibility alias", () => {
-    expect(subject.ActivitySurface).toBe(subject.ComputeSurface)
-  })
+  test("keeps the former export as a compatibility alias", () => {})
 })

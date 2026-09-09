@@ -8852,9 +8852,6 @@ export type SettingsPreferencesGetResponses = {
     show_local_models?: boolean
     desktop_onboarding_version?: number
     desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
-    desktop_onboarding_operations?: {
-      [key: string]: string
-    }
     atlas_enabled?: boolean
     delegation_enabled?: boolean
     delegation_specialist?: string | null
@@ -8912,9 +8909,6 @@ export type SettingsPreferencesUpdateResponses = {
     show_local_models?: boolean
     desktop_onboarding_version?: number
     desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
-    desktop_onboarding_operations?: {
-      [key: string]: string
-    }
     atlas_enabled?: boolean
     delegation_enabled?: boolean
     delegation_specialist?: string | null
@@ -8931,46 +8925,6 @@ export type SettingsPreferencesUpdateResponses = {
 
 export type SettingsPreferencesUpdateResponse =
   SettingsPreferencesUpdateResponses[keyof SettingsPreferencesUpdateResponses]
-
-export type SettingsPreferencesClearOnboardingOperationData = {
-  body?: {
-    fingerprint: string
-  }
-  path?: never
-  query?: never
-  url: "/settings/preferences/onboarding-operation"
-}
-
-export type SettingsPreferencesClearOnboardingOperationResponses = {
-  /**
-   * Onboarding operation cleared
-   */
-  204: void
-}
-
-export type SettingsPreferencesClearOnboardingOperationResponse =
-  SettingsPreferencesClearOnboardingOperationResponses[keyof SettingsPreferencesClearOnboardingOperationResponses]
-
-export type SettingsPreferencesOnboardingOperationData = {
-  body?: {
-    fingerprint: string
-  }
-  path?: never
-  query?: never
-  url: "/settings/preferences/onboarding-operation"
-}
-
-export type SettingsPreferencesOnboardingOperationResponses = {
-  /**
-   * Stable onboarding operation
-   */
-  200: {
-    operation_id: string
-  }
-}
-
-export type SettingsPreferencesOnboardingOperationResponse =
-  SettingsPreferencesOnboardingOperationResponses[keyof SettingsPreferencesOnboardingOperationResponses]
 
 export type PostSettingsLocalStartData = {
   body?: {

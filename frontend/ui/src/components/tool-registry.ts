@@ -32,7 +32,7 @@ export const ARTIFACT_TOOL = "__artifact__"
 
 const state: Record<string, { name: string; render?: ToolComponent }> = {}
 
-export function registerTool(input: { name: string; render?: ToolComponent }) {
+function registerTool(input: { name: string; render?: ToolComponent }) {
   state[input.name] = input
   return input
 }

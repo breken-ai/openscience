@@ -10,7 +10,6 @@ test("advanced navigation is opt-in by default", () => {
     atlas_enabled: false,
     delegation_enabled: true,
     delegation_specialist: null,
-    desktop_onboarding_operations: {},
   })
 })
 
@@ -63,40 +62,6 @@ test("composer preferences persist through the settings route", async () => {
     delegation_enabled: true,
     delegation_level: "high",
   })
-})
-
-test("desktop onboarding operation bindings are atomic, stable, and cleared individually", async () => {
-  const app = SettingsPreferencesRoutes()
-  const fingerprint = `same-draft-${crypto.randomUUID()}`
-  const other = `other-draft-${crypto.randomUUID()}`
-  const request = (value: string) =>
-    app.request("/onboarding-operation", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fingerprint: value }),
-    })
-
-  const responses = await Promise.all(Array.from({ length: 8 }, () => request(fingerprint)))
-  expect(responses.every((response) => response.status === 200)).toBe(true)
-  const ids = await Promise.all(
-    responses.map((response) => response.json().then((body) => (body as { operation_id: string }).operation_id)),
-  )
-  expect(new Set(ids).size).toBe(1)
-
-  const second = await request(other)
-  const secondID = ((await second.json()) as { operation_id: string }).operation_id
-  expect(secondID).not.toBe(ids[0])
-
-  const cleared = await app.request("/onboarding-operation", {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fingerprint }),
-  })
-  expect(cleared.status).toBe(204)
-
-  const current = (await (await app.request("/")).json()) as Preferences
-  expect(current.desktop_onboarding_operations[fingerprint]).toBeUndefined()
-  expect(current.desktop_onboarding_operations[other]).toBe(secondID)
 })
 
 test("concurrent preference patches preserve unrelated fields", async () => {

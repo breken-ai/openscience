@@ -1,5 +1,5 @@
 import { createSignal, onCleanup, onMount, type JSX, Show } from "solid-js"
-import { FONT_MONO } from "@/styles/tokens"
+import { FONT_SANS } from "@/styles/tokens"
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -20,7 +20,7 @@ export function AsciiSpinner(props: AsciiSpinnerProps): JSX.Element {
   return (
     <span
       style={{
-        "font-family": FONT_MONO,
+        "font-family": FONT_SANS,
         "font-size": `${props.size ?? 11}px`,
         color: props.color ?? "var(--color-text-muted)",
         display: "inline-flex",

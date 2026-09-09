@@ -5,7 +5,7 @@ type McpConfig = NonNullable<Config["mcp"]>[string]
 export type McpType = "local" | "remote"
 export type OAuthMode = "off" | "auto" | "client"
 export type ConfiguredMcp = Extract<McpConfig, { type: McpType }>
-export type ConnectorIdentityIcon = "cloud" | "console" | "discord" | "folder" | "github" | "server"
+type ConnectorIdentityIcon = "cloud" | "console" | "discord" | "folder" | "github" | "server"
 
 export interface ConnectorIdentity {
   icon: ConnectorIdentityIcon

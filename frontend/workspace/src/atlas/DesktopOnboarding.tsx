@@ -39,7 +39,7 @@ import "./DesktopOnboarding.css"
 /** The setup revision every install sees once. Mirrors ONBOARDING_VERSION on the server. */
 export const ONBOARDING_VERSION = 2
 
-export type OnboardingStep = "account" | "ace" | "connect" | "done"
+type OnboardingStep = "account" | "ace" | "connect" | "done"
 const STEPS: OnboardingStep[] = ["account", "ace", "connect", "done"]
 
 type Preferences = {

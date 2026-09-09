@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 const MODEL_ID = "e2e/echo"
 const PROJECT_PACKAGE = fileURLToPath(new URL("../../../package.json", import.meta.url))
 
-export const E2E_TOOL_SENTINELS = {
+const E2E_TOOL_SENTINELS = {
   question: "E2E_TOOL_QUESTION",
   permission: "E2E_TOOL_PERMISSION",
   malformed: "E2E_TOOL_MALFORMED",

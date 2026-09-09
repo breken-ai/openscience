@@ -1,7 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import path from "path"
-import { randomUUID } from "node:crypto"
 import z from "zod"
 import { Global } from "../../../global"
 import { lazy } from "@synsci/util/lazy"
@@ -15,10 +14,6 @@ const log = Log.create({ service: "settings-preferences" })
 // `~/.config/openscience/settings.json` so the values survive restarts and are shared
 // across every client talking to this local server.
 const filepath = path.join(Global.Path.config, "settings.json")
-
-const OnboardingOperations = z
-  .record(z.string().min(1).max(4_096), z.string().uuid())
-  .refine((value) => Object.keys(value).length <= 32, "Too many pending desktop onboarding operations")
 
 // Rows persisted verbatim to settings.json.
 const Stored = z.object({
@@ -47,10 +42,6 @@ const Stored = z.object({
   // The step a partially completed setup should resume at. Account state is
   // read from the server, but whether Ace was skipped is only known here.
   desktop_onboarding_step: z.enum(["account", "ace", "connect", "done"]).default("account"),
-  // A create request can commit even when its response or the completion write
-  // is lost. Bind each exact onboarding draft to its opaque create operation in
-  // the same port-independent app store so a remounted desktop retries safely.
-  desktop_onboarding_operations: OnboardingOperations.default({}),
   // Atlas is opt-in navigation. The switch controls only whether its local
   // project surface is shown; it never changes or deletes graph data.
   atlas_enabled: z.boolean().default(false),
@@ -95,14 +86,6 @@ const PreferencesPatch = z.object({
   delegation_autonomy: Stored.shape.delegation_autonomy.removeDefault().optional(),
   delegation_strategy: Stored.shape.delegation_strategy.removeDefault().optional(),
   delegation_diversity: Stored.shape.delegation_diversity.removeDefault().optional(),
-})
-
-const OnboardingOperationInput = z.object({
-  fingerprint: z.string().min(1).max(4_096),
-})
-
-const OnboardingOperation = z.object({
-  operation_id: z.string().uuid(),
 })
 
 function normalizeDelegation(value: unknown) {
@@ -188,53 +171,6 @@ export const SettingsPreferencesRoutes = lazy(() =>
         // App preference updates never rewrite the user's openscience.json.
         if (Object.keys(patch).length > 0) await mutate((current) => Stored.parse({ ...current, ...patch }))
         return c.json(await stored())
-      },
-    )
-    .post(
-      "/onboarding-operation",
-      describeRoute({
-        summary: "Get or create the durable operation for an exact desktop onboarding draft",
-        operationId: "settings.preferences.onboardingOperation",
-        responses: {
-          200: {
-            description: "Stable onboarding operation",
-            content: { "application/json": { schema: resolver(OnboardingOperation) } },
-          },
-        },
-      }),
-      validator("json", OnboardingOperationInput),
-      async (c) => {
-        const { fingerprint } = c.req.valid("json")
-        let operationID: string | undefined
-        await mutate((current) => {
-          operationID = current.desktop_onboarding_operations[fingerprint] ?? randomUUID()
-          return Stored.parse({
-            ...current,
-            desktop_onboarding_operations: {
-              ...current.desktop_onboarding_operations,
-              [fingerprint]: operationID,
-            },
-          })
-        })
-        return c.json(OnboardingOperation.parse({ operation_id: operationID }))
-      },
-    )
-    .delete(
-      "/onboarding-operation",
-      describeRoute({
-        summary: "Clear one completed desktop onboarding draft binding",
-        operationId: "settings.preferences.clearOnboardingOperation",
-        responses: { 204: { description: "Onboarding operation cleared" } },
-      }),
-      validator("json", OnboardingOperationInput),
-      async (c) => {
-        const { fingerprint } = c.req.valid("json")
-        await mutate((current) => {
-          const operations = { ...current.desktop_onboarding_operations }
-          delete operations[fingerprint]
-          return Stored.parse({ ...current, desktop_onboarding_operations: operations })
-        })
-        return c.body(null, 204)
       },
     ),
 )

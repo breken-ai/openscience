@@ -5,7 +5,7 @@ export interface Count {
   count: number
 }
 
-export interface FastqRecord {
+interface FastqRecord {
   id: string
   sequence: string
   length: number
@@ -30,7 +30,7 @@ export interface FastqFile {
   truncated: boolean
 }
 
-export interface VcfRecord {
+interface VcfRecord {
   chrom: string
   pos: number
   id: string
@@ -42,7 +42,7 @@ export interface VcfRecord {
   depth?: number
 }
 
-export interface VcfTypes {
+interface VcfTypes {
   snv: number
   insertion: number
   deletion: number
@@ -65,7 +65,7 @@ export interface VcfFile {
   truncated: boolean
 }
 
-export interface IntervalRecord {
+interface IntervalRecord {
   chrom: string
   start: number
   end: number
@@ -88,7 +88,7 @@ export interface IntervalFile {
   truncated: boolean
 }
 
-export interface SamRecord {
+interface SamRecord {
   name: string
   flag: number
   reference: string

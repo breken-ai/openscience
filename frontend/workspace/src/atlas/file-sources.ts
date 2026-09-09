@@ -1,6 +1,6 @@
 export type FilesystemAccess = "read" | "write"
 export type FilesystemScope = "once" | "session" | "project" | "installation"
-export type FilesystemSource = "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
+type FilesystemSource = "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
 
 export interface FilesystemGrant {
   id: string

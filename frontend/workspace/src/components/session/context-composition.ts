@@ -1,6 +1,6 @@
 import type { AssistantMessage, Message, Part } from "@synsci/sdk/v2/client"
 
-export type ContextCategory = "instructions" | "user" | "assistant" | "tool"
+type ContextCategory = "instructions" | "user" | "assistant" | "tool"
 
 /** The loaded transcript can describe available text, not the complete provider
  * payload. Keep this estimate independent of provider usage and its cache split. */

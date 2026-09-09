@@ -91,7 +91,7 @@ export function publishCapabilityPreferences(preferences: CapabilityPreferences)
   globalThis.dispatchEvent(new CustomEvent(CAPABILITY_PREFERENCES_EVENT, { detail: preferences }))
 }
 
-export type SpecialistOption = {
+type SpecialistOption = {
   name: string
   description?: string
 }

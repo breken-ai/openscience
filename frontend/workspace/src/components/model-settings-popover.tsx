@@ -106,7 +106,7 @@ const ModelMark: Component<{ id: string; name: string }> = (props) => (
 )
 
 export { modelSummary } from "@/context/model-catalog"
-export { inferenceSource, inferenceSourceLabel, type InferenceSource } from "@/context/model-catalog"
+export { inferenceSource, inferenceSourceLabel } from "@/context/model-catalog"
 
 type ModelOptionListProps = {
   id: string
