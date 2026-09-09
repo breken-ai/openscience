@@ -784,6 +784,12 @@ export namespace SessionPrompt {
       let lastAssistantMsg: MessageV2.WithParts | undefined
       let lastFinished: MessageV2.Assistant | undefined
       let tasks: (MessageV2.CompactionPart | MessageV2.SubtaskPart)[] = []
+      // A compaction runs only under its own carrier while that carrier is the
+      // newest user message, and never after its summary already ended in an
+      // error or a Stop. A failed summary has no `finish`, so without this the
+      // scan walked past it, picked the carrier up again and ran the summary
+      // under the user's next real prompt in place of an answer.
+      const settled = new Set<string>()
       for (let i = msgs.length - 1; i >= 0; i--) {
         const msg = msgs[i]
         if (!lastUser && msg.info.role === "user") lastUser = msg.info as MessageV2.User
@@ -791,10 +797,15 @@ export namespace SessionPrompt {
           lastAssistant = msg.info as MessageV2.Assistant
           lastAssistantMsg = msg
         }
+        if (msg.info.role === "assistant" && (msg.info.finish || msg.info.error)) settled.add(msg.info.parentID)
         if (!lastFinished && msg.info.role === "assistant" && msg.info.finish)
           lastFinished = msg.info as MessageV2.Assistant
         if (lastUser && lastFinished) break
-        const task = msg.parts.filter((part) => part.type === "compaction" || part.type === "subtask")
+        const task = msg.parts.filter(
+          (part): part is MessageV2.CompactionPart | MessageV2.SubtaskPart =>
+            part.type === "subtask" ||
+            (part.type === "compaction" && msg.info.id === lastUser?.id && !settled.has(msg.info.id)),
+        )
         if (task && !lastFinished) {
           tasks.push(...task)
         }
@@ -841,9 +852,14 @@ export namespace SessionPrompt {
               m.info.role === "user" &&
               m.parts.some((p) => p.type !== "compaction" && !(p.type === "text" && p.synthetic)),
           )?.info as MessageV2.User | undefined) ?? user
-        const detail =
+        const base =
           message ??
           "The assembled conversation still exceeds the provider's input limit after an attempt to summarize earlier history. Your conversation is preserved. Remove large attachments, choose a model with a larger input allowance, or start a new session with a short handoff."
+        // The loop retries a recoverable rejection on its own; say so, or the
+        // card reads as a dead end the user has to act on.
+        const detail = recoverable
+          ? `${base} OpenScience is compacting earlier history and will retry this request once automatically.`
+          : base
         const error = recoverable
           ? new MessageV2.ContextWindowError({ message: detail }).toObject()
           : new NamedError.Unknown({ message: detail }).toObject()

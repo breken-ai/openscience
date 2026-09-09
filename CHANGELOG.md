@@ -8,10 +8,105 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+- Keep launcher CPU fallback confined to a read-only startup probe, respect scientific-source cooldowns without early retries, preserve special characters in local file links, and verify upgrades when the old versioned executable remains on disk.
+
 ### Changed
 
+- Keep Settings usable while it refreshes: panels no longer flash their loading
+  skeleton or jump back to the top after Rescan, Save, or Add, and confirmations
+  raised inside Settings (removing a key, connector, or network rule) stack above
+  it and return to the same page instead of closing Settings.
+- Show the model picker's unconnected models as **Connect to use** rows that open
+  the connection settings, remember the last model you chose across reloads and
+  new sessions, and name the provider plus the fix when a request fails on a
+  rejected API key.
+- Reveal local models in the picker as soon as they are added, and record a
+  context window for every local, SSH, or direct endpoint (not only Ollama) so
+  long sessions on larger servers are not compacted at 32k tokens.
+- Redact provider API keys and auth headers from every served configuration
+  payload (`GET /config`, `/global/config`, `/config/providers`), and keep
+  `{env:…}` references as written when a project config is saved from the UI
+  or `openscience local --project`.
+- Answer the next prompt after a failed or stopped `/compact` instead of
+  replaying the summary under it; with a compaction model that kept failing,
+  every later prompt in the session was silently swallowed.
+- Keep OpenRouter's signed reasoning replay for models flagged as interleaved
+  (Gemini 3, GLM 5, MiniMax, Kimi via BYOK OpenRouter), and pass provider error
+  details through when the body nests them under `error.message` or `detail`.
+- Scope a dashboard credential change or a lost workspace grant to the
+  commands and jobs that inherited the synced credentials. Adding a key on the
+  dashboard no longer interrupts every running turn on the device.
+- Offer `compute_job` for long-running work described in ordinary words (SRA
+  downloads, STAR/bwa alignment, Nextflow or Snakemake pipelines, fine-tuning,
+  "this will take hours"), not only for prompts naming a cluster or GPU.
+- Show the sign-in page as a link while a browser sign-in is pending, so a
+  host that cannot open a browser (SSH, containers) can still finish signing in.
+- Give the recovery page a **Back to Projects** action with plain explanations
+  for project and folder errors instead of a raw JSON payload and a reload
+  loop, ask the server for JSON on every request so an older server cannot
+  answer an unknown route with the UI shell, and stop cutting a Windows drive
+  root (`C:\`) down to a drive-relative path when a project is opened there.
+- Say that a rejected oversized request is being compacted and retried, honour
+  a turn's own context limit for mid-turn overflow checks, take Ace image
+  support from the reviewed route catalogue, and stop advertising a Claude Max
+  sign-in the CLI has no plugin for.
+- Fix the Homebrew update check, which queried homebrew-core and always failed;
+  Homebrew installs now resolve the latest version from GitHub releases and
+  upgrade `synthetic-sciences/tap/openscience`. `openscience upgrade` downloads
+  the installer before running it and verifies the installed version afterwards,
+  so a failed download or a no-op package-manager run is reported instead of
+  "Upgrade complete".
+- Detect AVX2 on macOS through `hw.optional.avx2_0` in the npm launcher,
+  `npx synsci` and the install step (fixing Apple Silicon and Rosetta hosts),
+  recognise Windows illegal-instruction exits, retry once with the baseline
+  build when the optimized binary crashes on a CPU without AVX2, and name
+  `--omit=optional`/`--ignore-scripts` in the "binary not found" message.
+- Report a desktop sidecar that exits during startup immediately, with its exit
+  status, log path and the last lines of its log, keep the previous run's
+  sidecar log as `openscience-sidecar.prev.log`, and refuse Linux ARM64
+  kernels without 4 KB pages in the install script with the same guidance the
+  npm launcher prints. Remote `.well-known/openscience` configuration fetches
+  time out after 10 seconds instead of stalling startup.
+- Resolve `skills/<category>/<name>/…` script references inside loaded skill
+  instructions to the skill library's real location, so bundled skills that
+  call sibling scripts work from compiled releases, not only from a source
+  checkout; correct the Hugging Face Jobs, Evaluation and Model Trainer script
+  paths and make `generate-responses.py` run on Python 3.10 and 3.11 as
+  declared; and point the shipped agent instructions at real skill names.
+- Surface a skill with invalid frontmatter (for example a missing
+  `description`) as a visible error instead of silently dropping it, join
+  Crossref's polite pool when `CROSSREF_MAILTO` or `OPENALEX_MAILTO` is set,
+  cap `Retry-After` waits from scientific sources at 15 seconds, and state in
+  the bioRxiv/medRxiv connector that keyword search covers only recent postings.
 - Treat the validated provider tool call as authoritative, so an incomplete call
   can be repaired safely without conflicting with its provisional stream event.
+- Keep the model you picked in the composer when you leave a project, open
+  another one, or reload; the install default is used only until you choose.
+- Stop the conversation from going blank after approving an action or any
+  other background refresh: the session page no longer sits under a Suspense
+  boundary that swapped the whole transcript for its loading spinner while a
+  refetch was pending, which could leave it empty until the project was
+  reopened.
+- Record one tool receipt per provider call. When a tool call arrived in a
+  single chunk (local models, short arguments) the executor could register the
+  call before its streamed placeholder was written, leaving a duplicate part
+  stuck in **running** and sending two tool results for one call ID on the
+  next request.
+- Switching a project to **Full access** now settles the approval cards that
+  were already waiting under **Ask risky**, and fetch prompts show the address
+  being fetched; folder and host prompts showed a literal `{path}`/`{host}`
+  instead of the folder or host.
+- Open files the agent links in the conversation in the Files tab, including
+  results in the conversation's working area, connected folders, `file://`
+  links and echoed `/file/raw` URLs, instead of navigating to a `localhost`
+  page (opened in an external browser from the desktop app).
+- Keep folder access inside the project that approved it: **Allow always** is
+  no longer offered for folder prompts and never creates an installation-wide
+  grant, older installation-wide folder grants no longer apply, a shell working
+  directory outside the project is granted itself rather than its parent
+  (`cd /tmp` no longer granted `/private`), and the Files tab's **Working
+  files** list no longer shows the project's own root or loaded skill
+  directories as connected folders.
 - Preserve completed delegated work when a task is cancelled, report the
   worker's actual outcome and changed files to both the lead and UI, and bound
   silent remote response bodies without cutting off active streams. Keep the

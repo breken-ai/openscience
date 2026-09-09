@@ -21871,6 +21871,11 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 80
+                  },
+                  "contextLimit": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 2097152
                   }
                 },
                 "required": [
@@ -28891,6 +28896,8 @@
                             "type": "string",
                             "enum": [
                               "workspace",
+                              "project",
+                              "skill",
                               "permission",
                               "api",
                               "tool",
@@ -29122,6 +29129,8 @@
                       "type": "string",
                       "enum": [
                         "workspace",
+                        "project",
+                        "skill",
                         "permission",
                         "api",
                         "tool",
@@ -29290,6 +29299,8 @@
                       "type": "string",
                       "enum": [
                         "workspace",
+                        "project",
+                        "skill",
                         "permission",
                         "api",
                         "tool",
@@ -53066,6 +53077,30 @@
           "properties"
         ]
       },
+      "Event.account.login": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "account.login"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "approval_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "approval_url"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
       "Event.lsp.client.diagnostics": {
         "type": "object",
         "properties": {
@@ -53198,6 +53233,8 @@
                     "type": "string",
                     "enum": [
                       "workspace",
+                      "project",
+                      "skill",
                       "permission",
                       "api",
                       "tool",
@@ -56867,6 +56904,9 @@
             "$ref": "#/components/schemas/Event.account.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.account.login"
+          },
+          {
             "$ref": "#/components/schemas/Event.lsp.client.diagnostics"
           },
           {
@@ -59387,6 +59427,7 @@
               "config",
               "custom",
               "api",
+              "workspace",
               "managed"
             ]
           },

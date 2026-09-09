@@ -119,6 +119,13 @@ export type EventAccountUpdated = {
   }
 }
 
+export type EventAccountLogin = {
+  type: "account.login"
+  properties: {
+    approval_url: string
+  }
+}
+
 export type EventLspClientDiagnostics = {
   type: "lsp.client.diagnostics"
   properties: {
@@ -152,7 +159,7 @@ export type EventSessionFilesystemChanged = {
       path: string
       access: "read" | "write"
       scope: "once" | "session" | "project" | "installation"
-      source: "workspace" | "permission" | "api" | "tool" | "handoff"
+      source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
       time: {
         created: number
         consumed?: number
@@ -1183,6 +1190,7 @@ export type Event =
   | EventServerInstanceDisposed
   | EventProjectTrustChanged
   | EventAccountUpdated
+  | EventAccountLogin
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventFileWatcherUpdated
@@ -2329,7 +2337,7 @@ export type Model = {
 export type Provider = {
   id: string
   name: string
-  source: "env" | "config" | "custom" | "api" | "managed"
+  source: "env" | "config" | "custom" | "api" | "workspace" | "managed"
   env: Array<string>
   key?: string
   options: {
@@ -8991,6 +8999,7 @@ export type PostSettingsLocalSshData = {
     localPort?: number
     key?: string
     name?: string
+    contextLimit?: number
   }
   path?: never
   query?: never
@@ -11303,7 +11312,7 @@ export type SessionFilesystemListResponses = {
       path: string
       access: "read" | "write"
       scope: "once" | "session" | "project" | "installation"
-      source: "workspace" | "permission" | "api" | "tool" | "handoff"
+      source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
       time: {
         created: number
         consumed?: number
@@ -11372,7 +11381,7 @@ export type SessionFilesystemGrantResponses = {
     path: string
     access: "read" | "write"
     scope: "once" | "session" | "project" | "installation"
-    source: "workspace" | "permission" | "api" | "tool" | "handoff"
+    source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
     time: {
       created: number
       consumed?: number
@@ -11417,7 +11426,7 @@ export type SessionFilesystemRevokeResponses = {
     path: string
     access: "read" | "write"
     scope: "once" | "session" | "project" | "installation"
-    source: "workspace" | "permission" | "api" | "tool" | "handoff"
+    source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
     time: {
       created: number
       consumed?: number

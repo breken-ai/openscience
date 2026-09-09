@@ -1859,7 +1859,7 @@ export namespace Provider {
     .object({
       id: z.string(),
       name: z.string(),
-      source: z.enum(["env", "config", "custom", "api", "managed"]),
+      source: z.enum(["env", "config", "custom", "api", "workspace", "managed"]),
       env: z.string().array(),
       key: z.string().optional(),
       options: z.record(z.string(), z.any()),
@@ -2237,7 +2237,11 @@ export namespace Provider {
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
-    const authEntries = await Auth.all()
+    const resolvedAuth = await Auth.resolve()
+    const authEntries = resolvedAuth.auth
+    // Keys that arrived through the signed-in workspace are managed on the
+    // dashboard; labelling them as this device's own file made Remove fail.
+    const workspaceKeys = resolvedAuth.overlay?.providers ?? new Set<string>()
     const managedCuratedProvidersOnly = managedRoutesCuratedProvidersOnly(config)
     const localProviderIDs = new Set(
       Object.entries(config.provider ?? {})
@@ -2477,7 +2481,7 @@ export namespace Provider {
       if (disabled.has(providerID)) continue
       if (provider.type === "api") {
         mergeProvider(providerID, {
-          source: "api",
+          source: workspaceKeys.has(providerID) ? "workspace" : "api",
           key: provider.key,
         })
       }
@@ -2633,6 +2637,10 @@ export namespace Provider {
           // The gateway's request envelope carries text and image parts only,
           // whatever the upstream model accepts; a document or media part is
           // refused with 422, so the route never advertises those inputs.
+          // Image support follows the reviewed route, not models.dev's entry,
+          // which has lagged and left vision models refusing attachments.
+          model.capabilities.input.image = reviewed.input.includes("image")
+          model.capabilities.attachment = model.capabilities.input.image
           model.capabilities.input.pdf = false
           model.capabilities.input.audio = false
           model.capabilities.input.video = false
