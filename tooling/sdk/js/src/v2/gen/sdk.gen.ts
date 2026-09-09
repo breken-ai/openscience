@@ -1836,6 +1836,7 @@ export class Preferences extends HeyApiClient {
       show_trace?: boolean
       show_local_models?: boolean
       desktop_onboarding_version?: number
+      desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
       atlas_enabled?: boolean
       delegation_enabled?: boolean
       delegation_specialist?: string | null
@@ -1845,6 +1846,7 @@ export class Preferences extends HeyApiClient {
         modelID: string
       } | null
       delegation_autonomy?: "interactive" | "balanced" | "autonomous"
+      delegation_strategy?: "parallel" | "fusion"
       delegation_diversity?: "focused" | "balanced" | "exploratory"
     },
     options?: Options<never, ThrowOnError>,
@@ -1860,12 +1862,14 @@ export class Preferences extends HeyApiClient {
             { in: "body", key: "show_trace" },
             { in: "body", key: "show_local_models" },
             { in: "body", key: "desktop_onboarding_version" },
+            { in: "body", key: "desktop_onboarding_step" },
             { in: "body", key: "atlas_enabled" },
             { in: "body", key: "delegation_enabled" },
             { in: "body", key: "delegation_specialist" },
             { in: "body", key: "delegation_level" },
             { in: "body", key: "delegation_worker_model" },
             { in: "body", key: "delegation_autonomy" },
+            { in: "body", key: "delegation_strategy" },
             { in: "body", key: "delegation_diversity" },
           ],
         },
@@ -3775,6 +3779,7 @@ export class Session extends HeyApiClient {
           modelID: string
         }
         autonomy?: "interactive" | "balanced" | "autonomous"
+        strategy?: "parallel" | "fusion"
       }
       system?: string
       variant?: string
@@ -3880,6 +3885,7 @@ export class Session extends HeyApiClient {
           modelID: string
         }
         autonomy?: "interactive" | "balanced" | "autonomous"
+        strategy?: "parallel" | "fusion"
       }
       system?: string
       variant?: string
@@ -3948,6 +3954,7 @@ export class Session extends HeyApiClient {
           modelID: string
         }
         autonomy?: "interactive" | "balanced" | "autonomous"
+        strategy?: "parallel" | "fusion"
       }
       variant?: string
       tier?: string
@@ -4373,6 +4380,7 @@ export class Runtime extends HeyApiClient {
           modelID: string
         }
         autonomy?: "interactive" | "balanced" | "autonomous"
+        strategy?: "parallel" | "fusion"
       }
       requestID?: string
       message?: string

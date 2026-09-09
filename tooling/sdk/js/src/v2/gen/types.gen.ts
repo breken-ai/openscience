@@ -277,6 +277,7 @@ export type UserMessage = {
       modelID: string
     }
     autonomy?: "interactive" | "balanced" | "autonomous"
+    strategy?: "parallel" | "fusion"
   }
   variant?: string
   tier?: string
@@ -8850,6 +8851,7 @@ export type SettingsPreferencesGetResponses = {
     show_trace?: boolean
     show_local_models?: boolean
     desktop_onboarding_version?: number
+    desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
     desktop_onboarding_operations?: {
       [key: string]: string
     }
@@ -8862,6 +8864,7 @@ export type SettingsPreferencesGetResponses = {
       modelID: string
     } | null
     delegation_autonomy?: "interactive" | "balanced" | "autonomous"
+    delegation_strategy?: "parallel" | "fusion"
     delegation_diversity?: "focused" | "balanced" | "exploratory"
   }
 }
@@ -8876,6 +8879,7 @@ export type SettingsPreferencesUpdateData = {
     show_trace?: boolean
     show_local_models?: boolean
     desktop_onboarding_version?: number
+    desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
     atlas_enabled?: boolean
     delegation_enabled?: boolean
     delegation_specialist?: string | null
@@ -8885,6 +8889,7 @@ export type SettingsPreferencesUpdateData = {
       modelID: string
     } | null
     delegation_autonomy?: "interactive" | "balanced" | "autonomous"
+    delegation_strategy?: "parallel" | "fusion"
     delegation_diversity?: "focused" | "balanced" | "exploratory"
   }
   path?: never
@@ -8906,6 +8911,7 @@ export type SettingsPreferencesUpdateResponses = {
     show_trace?: boolean
     show_local_models?: boolean
     desktop_onboarding_version?: number
+    desktop_onboarding_step?: "account" | "ace" | "connect" | "done"
     desktop_onboarding_operations?: {
       [key: string]: string
     }
@@ -8918,6 +8924,7 @@ export type SettingsPreferencesUpdateResponses = {
       modelID: string
     } | null
     delegation_autonomy?: "interactive" | "balanced" | "autonomous"
+    delegation_strategy?: "parallel" | "fusion"
     delegation_diversity?: "focused" | "balanced" | "exploratory"
   }
 }
@@ -11693,6 +11700,7 @@ export type SessionPromptData = {
         modelID: string
       }
       autonomy?: "interactive" | "balanced" | "autonomous"
+      strategy?: "parallel" | "fusion"
     }
     system?: string
     variant?: string
@@ -11892,6 +11900,7 @@ export type SessionPromptAsyncData = {
         modelID: string
       }
       autonomy?: "interactive" | "balanced" | "autonomous"
+      strategy?: "parallel" | "fusion"
     }
     system?: string
     variant?: string
@@ -11949,6 +11958,7 @@ export type SessionCommandData = {
         modelID: string
       }
       autonomy?: "interactive" | "balanced" | "autonomous"
+      strategy?: "parallel" | "fusion"
     }
     variant?: string
     tier?: string
@@ -12181,6 +12191,7 @@ export type RuntimePromptData = {
         modelID: string
       }
       autonomy?: "interactive" | "balanced" | "autonomous"
+      strategy?: "parallel" | "fusion"
     }
     requestID?: string
     message?: string

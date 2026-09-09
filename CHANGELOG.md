@@ -8,11 +8,24 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+- New first-run setup, shown once to every install from this release on: a centered card with four steps. Account (required, browser sign-up/sign-in or a pasted key), Ace (recommended, opens billing and continues when Ace is on), connect your own models (ChatGPT / Codex, Anthropic, OpenAI, OpenRouter, Firecrawl keys, Modal detection, with provider logos and inline key entry), and done. Project creation moved to the Projects page, whose empty state now offers **New project**. The terminal install runs the same four steps inline the first time `openscience` starts (`openscience init` repeats them); scripted, CI, and restarted launches skip it.
+
 - Linux supervised commands inherit blocking output handles so high-volume native tools do not abort with `EAGAIN` when their output pipe fills.
 
 - Oversized incomplete Bash output lines and private-key blocks are replaced with explicit redaction markers; provenance previews are redacted before clipping.
 
 - Keep launcher CPU fallback confined to a read-only startup probe, respect scientific-source cooldowns without early retries, preserve special characters in local file links, and verify upgrades when the old versioned executable remains on disk.
+
+### Added
+
+- **Fusion**, an opt-in way to run delegated work: the model you selected stays
+  the lead and hands substantial, well-specified work to one persistent worker
+  on the configured Worker model, which is resumed for every execute task
+  instead of a fresh child per handoff. Choose **Workers → Fusion** in the
+  composer's Tools menu; the menu shows the lead/worker pair, task cards show
+  the handoff number and lineage, the cost readout includes the worker's spend,
+  and each turn is bounded to six handoffs. Publication and paid compute stay
+  with the lead. Ordinary (Parallel) delegation is unchanged.
 
 ### Changed
 
