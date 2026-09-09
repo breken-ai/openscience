@@ -8,6 +8,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+- The shell installer uses CPU flags exposed by Windows POSIX environments and defaults to the baseline archive when they are absent or unreadable, so x86-64 Windows hosts without confirmed AVX2 support avoid an optimized binary that dies with an illegal instruction.
+
 ### Changed
 
 - The first-run intro leads with the OpenScience mark, a tagline, and a
