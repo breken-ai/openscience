@@ -8,6 +8,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+- Attaching a large file no longer discards workspace state you did not touch, and the composer now says the draft is not saved instead of losing it silently.
+
 ### Changed
 
 - The first-run intro leads with the OpenScience mark, a tagline, and a
