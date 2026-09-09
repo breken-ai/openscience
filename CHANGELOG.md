@@ -16,6 +16,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 - Keep launcher CPU fallback confined to a read-only startup probe, respect scientific-source cooldowns without early retries, preserve special characters in local file links, and verify upgrades when the old versioned executable remains on disk.
 
+- Stopping a turn now cancels the MCP tool call that is still running: OpenScience sends the protocol cancellation to the server instead of abandoning the request, ignores a reply that arrives afterwards, and releases the update lease the call was holding.
+
 ### Added
 
 - **Fusion**, an opt-in way to run delegated work: the model you selected stays
