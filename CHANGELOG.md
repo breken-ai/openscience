@@ -10,6 +10,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
+- The global event stream the workspace subscribes to now buffers a bounded number of events per connection instead of growing the server's memory for as long as a browser tab stays stalled, and a tab that misses events re-hydrates on the next `server.connected` frame exactly as it does after a reconnect.
+
 - The first-run intro leads with the OpenScience mark, a tagline, and a
   text-only fact strip instead of a stock icon tile; the other setup steps use a
   small eyebrow line, the Ace benefits are text cards, and the page has a quiet
