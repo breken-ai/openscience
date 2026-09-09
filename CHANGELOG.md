@@ -8,6 +8,18 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+### Changed
+
+- The first-run intro leads with the OpenScience mark, a tagline, and a
+  text-only fact strip instead of a stock icon tile; the other setup steps use a
+  small eyebrow line, the Ace benefits are text cards, and the page has a quiet
+  glow and dot grid behind the card.
+
+### Removed
+
+- The desktop onboarding-operation endpoints and the `desktop_onboarding_operations`
+  preference. Setup no longer creates projects, so nothing called them.
+
 ## v2.0.73–v2.0.87 — 2026-09-09
 
 ### Added
