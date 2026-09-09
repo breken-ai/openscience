@@ -55,7 +55,7 @@ const STEP_BODY: Record<"mac" | "win" | "linux", string> = {
  * permission denial. Lives next to the new-project button; click opens a
  * compact recovery sheet with a deliberate settings link and recheck.
  */
-export function FdaChip(): JSX.Element {
+function FdaChip(): JSX.Element {
   const sdk = useGlobalSDK()
   const [dismissed, setDismissed] = createSignal(
     typeof localStorage !== "undefined" && localStorage.getItem(DISMISS_KEY) === "1",
@@ -140,7 +140,7 @@ function FdaSheet(props: {
         <div class="folder-access-actions">
           <Show when={url()}>
             <a href={url()!} target="_self" class="folder-access-action folder-access-action--primary">
-              <IconArrowRight size={12} strokeWidth={1.6} />
+              <IconArrowRight size={12} strokeWidth={1.5} />
               Open privacy settings
             </a>
           </Show>
@@ -154,7 +154,7 @@ function FdaSheet(props: {
             }}
             disabled={busy()}
           >
-            <IconRefresh size={12} strokeWidth={1.6} />
+            <IconRefresh size={12} strokeWidth={1.5} />
             {busy() ? "Checking…" : "Recheck"}
           </button>
           <button type="button" class="folder-access-action folder-access-action--dismiss" onClick={props.onDismiss}>

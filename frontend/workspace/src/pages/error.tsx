@@ -316,7 +316,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         "font-family": FONT_SANS,
         padding: "32px",
         background:
-          "radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--color-danger) 6%, transparent), transparent 34%), var(--color-bg)",
+          "radial-gradient(circle at 50% 25%, color-mix(in srgb, var(--color-error) 6%, transparent), transparent 34%), var(--color-bg)",
       }}
     >
       <main
@@ -341,12 +341,12 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               "align-items": "center",
               "justify-content": "center",
               "border-radius": "10px",
-              background: "color-mix(in srgb, var(--color-danger) 10%, transparent)",
-              color: "var(--color-danger)",
+              background: "color-mix(in srgb, var(--color-error) 10%, transparent)",
+              color: "var(--color-error)",
               "flex-shrink": 0,
             }}
           >
-            <IconAlertCircle size={20} strokeWidth={1.6} />
+            <IconAlertCircle size={20} strokeWidth={1.5} />
           </span>
           <div style={{ display: "flex", "flex-direction": "column", gap: "8px", "min-width": 0 }}>
             <span
@@ -383,7 +383,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             onClick={() => void platform.restart()}
           >
             <span style={{ display: "inline-flex", "align-items": "center", gap: "7px" }}>
-              <IconRefresh size={13} />
+              <IconRefresh size={12} />
               {platform.platform === "desktop" ? "Restart App" : "Reload App"}
             </span>
           </Button>
@@ -392,7 +392,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           </Button>
           <Button size="large" variant="secondary" onClick={() => void copy()}>
             <span style={{ display: "inline-flex", "align-items": "center", gap: "7px" }}>
-              <IconCopy size={13} />
+              <IconCopy size={12} />
               {copied() ? "Diagnostic Copied" : "Copy Diagnostic"}
             </span>
           </Button>

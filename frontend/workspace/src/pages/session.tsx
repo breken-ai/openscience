@@ -47,6 +47,9 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconHome,
+  IconBookOpen,
+  IconFlask,
+  IconFolder,
   IconPlus,
   IconSearch,
   IconSettings,
@@ -79,6 +82,7 @@ import { createTraceExpansion } from "@/pages/session-trace"
 import { estimate, latestContext, type ContextEstimate, type ContextSample } from "@/pages/session-context"
 import "./session-header.css"
 import "./session-undo.css"
+import "./session-empty.css"
 import "../components/chat-surface.css"
 
 type SyncSession = ReturnType<typeof useSync>["data"]["session"][number]
@@ -1192,6 +1196,9 @@ export default function Page(): JSX.Element {
                     <span>Opening your last session…</span>
                   </div>
                 </Match>
+                <Match when={params.id && messages().length === 0}>
+                  <SessionEmptyState project={projectName()} />
+                </Match>
                 <Match when={params.id && messages().length > 0}>
                   {/* Scoped to just the scroll area (not the revert banner / Composer
                       below) so the jump-to-latest pill's position:absolute resolves
@@ -1278,7 +1285,7 @@ export default function Page(): JSX.Element {
                                   aria-label="Back to parent session"
                                   onClick={() => navigate(`/${params.dir}/session/${activeSession()!.parentID}`)}
                                 >
-                                  <IconChevronLeft size={13} strokeWidth={1.6} />
+                                  <IconChevronLeft size={12} strokeWidth={1.5} />
                                   Parent
                                 </button>
                                 <button
@@ -1288,7 +1295,7 @@ export default function Page(): JSX.Element {
                                   disabled={!previousChild()}
                                   onClick={() => navigate(`/${params.dir}/session/${previousChild()!.id}`)}
                                 >
-                                  <IconChevronLeft size={13} strokeWidth={1.6} />
+                                  <IconChevronLeft size={12} strokeWidth={1.5} />
                                 </button>
                                 <span class="min-w-10 text-center text-[11px] text-text-weaker">
                                   {Math.max(0, childIndex()) + 1}/{childSessions().length}
@@ -1300,7 +1307,7 @@ export default function Page(): JSX.Element {
                                   disabled={!nextChild()}
                                   onClick={() => navigate(`/${params.dir}/session/${nextChild()!.id}`)}
                                 >
-                                  <IconChevronRight size={13} strokeWidth={1.6} />
+                                  <IconChevronRight size={12} strokeWidth={1.5} />
                                 </button>
                               </div>
                             </div>
@@ -1411,9 +1418,9 @@ export default function Page(): JSX.Element {
 
                     <div class="session-jump-latest-rail" aria-live="polite">
                       <Show when={chatScroll.userScrolled()}>
-                        <button type="button" class="session-jump-latest" onClick={followLatest} title="Jump to Latest">
-                          <IconChevronDown size={13} strokeWidth={1.6} />
-                          Jump to Latest
+                        <button type="button" class="session-jump-latest" onClick={followLatest} title="Jump to latest">
+                          <IconChevronDown size={12} strokeWidth={1.5} />
+                          Jump to latest
                         </button>
                       </Show>
                     </div>
@@ -1458,6 +1465,51 @@ export default function Page(): JSX.Element {
               </div>
             </section>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const EMPTY_SESSION_STARTERS = [
+  {
+    icon: IconBookOpen,
+    title: "Survey the literature",
+    prompt: "Survey the recent literature on ",
+  },
+  {
+    icon: IconFlask,
+    title: "Plan an experiment",
+    prompt: "Help me design an experiment to test whether ",
+  },
+  {
+    icon: IconFolder,
+    title: "Work with my files",
+    prompt: "Look through the files in this project and summarise what they contain, then ",
+  },
+] as const
+
+/** The first thing a new session shows: what this project is, and three ways
+ *  to begin that seed the composer rather than sending on the user's behalf. */
+function SessionEmptyState(props: { project: string }) {
+  return (
+    <div class="session-empty" role="region" aria-label="Start a session">
+      <div class="session-empty__inner">
+        <p class="session-empty__eyebrow">{props.project}</p>
+        <h2 class="session-empty__title">What would you like to work on?</h2>
+        <p class="session-empty__hint">
+          Describe a research task below. OpenScience reads this project's files, searches sources, runs analyses, and
+          keeps the results here.
+        </p>
+        <div class="session-empty__starters">
+          <For each={EMPTY_SESSION_STARTERS}>
+            {(starter) => (
+              <button type="button" class="session-empty__starter" onClick={() => uiStore.setPrefill(starter.prompt)}>
+                <starter.icon size={14} strokeWidth={1.5} />
+                <span>{starter.title}</span>
+              </button>
+            )}
+          </For>
         </div>
       </div>
     </div>
@@ -1542,7 +1594,7 @@ function Header(props: {
         title="Show sessions"
         aria-label="Show sessions"
       >
-        <IconMessageSquare size={13} strokeWidth={1.5} />
+        <IconMessageSquare size={12} strokeWidth={1.5} />
       </button>
       <button
         class="workspace-header__back"
@@ -1550,7 +1602,7 @@ function Header(props: {
         title="Back to projects"
         aria-label="Back to projects"
       >
-        <IconChevronLeft size={14} strokeWidth={1.6} />
+        <IconChevronLeft size={14} strokeWidth={1.5} />
       </button>
       <h1 class="sr-only">{props.title}</h1>
       <SessionTabStrip
@@ -1660,7 +1712,7 @@ function SessionsSidebar(props: {
           data-tooltip="Projects"
           onClick={props.onBack}
         >
-          <IconHome size={15} strokeWidth={1.5} />
+          <IconHome size={16} strokeWidth={1.5} />
           <strong>{props.projectName}</strong>
         </button>
         <button
@@ -1677,12 +1729,12 @@ function SessionsSidebar(props: {
           <Show
             when={compact()}
             fallback={
-              <Show when={props.collapsed} fallback={<IconChevronLeft size={14} strokeWidth={1.6} />}>
-                <IconChevronRight size={14} strokeWidth={1.6} />
+              <Show when={props.collapsed} fallback={<IconChevronLeft size={14} strokeWidth={1.5} />}>
+                <IconChevronRight size={14} strokeWidth={1.5} />
               </Show>
             }
           >
-            <IconX size={14} strokeWidth={1.6} />
+            <IconX size={14} strokeWidth={1.5} />
           </Show>
         </button>
       </div>
@@ -1698,7 +1750,7 @@ function SessionsSidebar(props: {
             disabled={props.creating}
             onClick={props.onNew}
           >
-            <IconPlus size={15} strokeWidth={1.7} />
+            <IconPlus size={16} strokeWidth={1.5} />
           </SidebarAction>
           <SidebarAction
             label="Search"
@@ -1707,7 +1759,7 @@ function SessionsSidebar(props: {
             shortcut="⌘K"
             onClick={props.onSearch}
           >
-            <IconSearch size={15} strokeWidth={1.5} />
+            <IconSearch size={16} strokeWidth={1.5} />
           </SidebarAction>
           <SidebarAction
             label="Customize"
@@ -1715,7 +1767,7 @@ function SessionsSidebar(props: {
             ariaLabel="Customize OpenScience"
             onClick={props.onCustomize}
           >
-            <IconSettings size={15} strokeWidth={1.5} />
+            <IconSettings size={16} strokeWidth={1.5} />
           </SidebarAction>
           <ProjectTrustControl />
         </div>
@@ -1821,7 +1873,7 @@ function ProjectTrustControl(): JSX.Element {
         disabled={authority.trusting()}
         onClick={() => void trust()}
       >
-        <IconShield size={15} strokeWidth={1.5} />
+        <IconShield size={16} strokeWidth={1.5} />
       </SidebarAction>
     </Show>
   )
@@ -1904,7 +1956,7 @@ function SessionRow(props: {
                   </span>
                 }
               >
-                <IconPinFilled size={10} strokeWidth={1.4} />
+                <IconPinFilled size={10} strokeWidth={1.5} />
               </Show>
             </span>
             <span class="session-sidebar__session-title" title="Double-click to rename">
