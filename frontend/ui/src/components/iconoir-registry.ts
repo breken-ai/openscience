@@ -76,7 +76,6 @@ import settingsSvg from "iconoir/icons/settings.svg?raw"
 import settingsProfilesSvg from "iconoir/icons/settings-profiles.svg?raw"
 import shareIosSvg from "iconoir/icons/share-ios.svg?raw"
 import shieldSvg from "iconoir/icons/shield.svg?raw"
-import userSvg from "iconoir/icons/user.svg?raw"
 import shieldAlertSvg from "iconoir/icons/shield-alert.svg?raw"
 import sidebarCollapseSvg from "iconoir/icons/sidebar-collapse.svg?raw"
 import sidebarExpandSvg from "iconoir/icons/sidebar-expand.svg?raw"
@@ -176,7 +175,6 @@ const sources = {
   "settings-profiles": settingsProfilesSvg,
   "share-ios": shareIosSvg,
   shield: shieldSvg,
-  user: userSvg,
   "shield-alert": shieldAlertSvg,
   "sidebar-collapse": sidebarCollapseSvg,
   "sidebar-expand": sidebarExpandSvg,
@@ -303,7 +301,6 @@ export const iconSpecs = {
   "settings-gear": regular("settings"),
   share: regular("share-ios"),
   shield: regular("shield"),
-  user: regular("user"),
   "shield-alert": regular("shield-alert"),
   sliders: regular("settings-profiles"),
   sparkles: regular("sparks"),

@@ -2,6 +2,7 @@
    above, progress dots inside, one panel per step, one primary action. Same
    tokens as the workspace so the first screen matches the app that follows. */
 .desktop-onboarding {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -14,6 +15,23 @@
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-family-sans);
+  isolation: isolate;
+}
+
+/* Ambient depth behind the card: a soft top glow and a dot grid that fades
+   out before it reaches the card. Both come from the text colour so they hold
+   up in every theme. */
+.desktop-onboarding::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(720px 360px at 50% -80px, color-mix(in srgb, var(--color-text) 7%, transparent), transparent 70%),
+    radial-gradient(circle at center, color-mix(in srgb, var(--color-text) 9%, transparent) 1px, transparent 1.5px) 0
+      0 / 24px 24px;
+  mask-image: radial-gradient(900px 520px at 50% 30%, black 20%, transparent 100%);
+  pointer-events: none;
 }
 
 .desktop-onboarding--loading {
@@ -28,6 +46,10 @@
   font-size: 13px;
 }
 
+.desktop-onboarding__brand[data-hidden="true"] {
+  visibility: hidden;
+}
+
 .desktop-onboarding__card {
   position: relative;
   display: flex;
@@ -39,6 +61,7 @@
   border: 1px solid var(--color-border);
   border-radius: 16px;
   background: var(--color-surface);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--color-text) 4%, transparent) inset;
 }
 
 /* Progress dots */
@@ -84,39 +107,77 @@
   max-width: none;
 }
 
-.desktop-onboarding__tile {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  margin-bottom: 4px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg);
-  color: var(--color-text);
-}
-
-/* The logo box normally comes from the Settings dialog's styles, which are
-   not mounted yet on the first run. */
-.desktop-onboarding .settings-provider-logo {
+/* Intro hero: the brand mark in a soft aura instead of a generic icon tile. */
+.desktop-onboarding__mark {
   position: relative;
-  display: flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 9px;
-  background: var(--color-accent-subtle);
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  margin-bottom: 6px;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in srgb, var(--color-text) 12%, transparent),
+    color-mix(in srgb, var(--color-text) 3%, transparent) 60%,
+    transparent 100%
+  );
   color: var(--color-text);
 }
 
-.desktop-onboarding__tile .settings-provider-logo {
-  background: transparent;
+.desktop-onboarding__mark::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
+  border-radius: 999px;
 }
 
-.desktop-onboarding__tile--success {
+.desktop-onboarding__mark svg {
+  width: 30px;
+  height: 30px;
+}
+
+.desktop-onboarding__panel--intro h1 {
+  font-size: 26px;
+}
+
+.desktop-onboarding__tagline {
+  margin: -4px 0 0;
+  max-width: 34ch;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: balance;
+}
+
+.desktop-onboarding__facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 0;
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-faint);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.desktop-onboarding__facts li + li::before {
+  content: "·";
+  margin: 0 10px;
+}
+
+.desktop-onboarding__eyebrow {
+  margin: 0 0 -4px;
+  color: var(--color-text-faint);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.01em;
+}
+
+.desktop-onboarding__eyebrow--success {
   color: var(--color-success);
 }
 
@@ -256,26 +317,26 @@
 }
 
 .desktop-onboarding__benefits li {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 12px 12px 16px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-bg);
 }
 
-.desktop-onboarding__benefits svg {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--color-text-muted);
-}
-
-.desktop-onboarding__benefits div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+/* A hairline accent instead of an icon: quieter, and it reads as a list. */
+.desktop-onboarding__benefits li::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
 }
 
 .desktop-onboarding__benefits strong {

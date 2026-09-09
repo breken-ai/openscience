@@ -13,18 +13,8 @@ import {
 import { createStore } from "solid-js/store"
 import { Button } from "@synsci/ui/button"
 import { TextField } from "@synsci/ui/text-field"
-import {
-  IconBolt,
-  IconCheckCircle,
-  IconChevronDown,
-  IconChevronLeft,
-  IconLink,
-  IconPhoto,
-  IconSearch,
-  IconShield,
-  IconSparkles,
-  IconUser,
-} from "@/atlas/shared/Icon"
+import { IconCheckCircle, IconChevronDown, IconChevronLeft } from "@/atlas/shared/Icon"
+import { ProviderIcon } from "@synsci/ui/provider-icon"
 import { Wordmark } from "@/atlas/Wordmark"
 import { ProviderLogo } from "@/components/settings/ProviderLogo"
 import { settingsApi } from "@/components/settings/api"
@@ -103,11 +93,13 @@ const CONNECTIONS: Connection[] = [
 ]
 
 const ACE_BENEFITS = [
-  { icon: IconSparkles, title: "Managed models", detail: "Frontier models with no keys to manage." },
-  { icon: IconSearch, title: "Literature search", detail: "High-quality search and full text through Firecrawl." },
-  { icon: IconPhoto, title: "Schematics and images", detail: "Scientific figures and image generation." },
-  { icon: IconShield, title: "Team wallet", detail: "One workspace balance, pay as you go." },
+  { title: "Managed models", detail: "Frontier models with no keys to manage." },
+  { title: "Literature search", detail: "High-quality search and full text through Firecrawl." },
+  { title: "Schematics and images", detail: "Scientific figures and image generation." },
+  { title: "Team wallet", detail: "One workspace balance, pay as you go." },
 ]
+
+const INTRO_FACTS = ["Any model", "Files stay local", "Open source"]
 
 const VERSION_KEY = "openscience.desktop_onboarding_version"
 /** How long the window waits for the browser sign-in to finish before it lets
@@ -466,7 +458,10 @@ export function DesktopOnboardingController(
         when={complete()}
         fallback={
           <main class="desktop-onboarding" aria-labelledby="desktop-onboarding-title" aria-busy={Boolean(connect.busy)}>
-            <Wordmark size="md" />
+            {/* The intro card carries the brand mark itself; keep the slot so the card does not jump between steps. */}
+            <div class="desktop-onboarding__brand" data-hidden={step() === "account" ? "true" : undefined}>
+              <Wordmark size="md" />
+            </div>
             <section class="desktop-onboarding__card" data-step={step()}>
               <ol class="desktop-onboarding__dots" aria-label={`Step ${STEPS.indexOf(step()) + 1} of ${STEPS.length}`}>
                 <For each={STEPS}>
@@ -483,13 +478,17 @@ export function DesktopOnboardingController(
 
               <Switch>
                 <Match when={step() === "account"}>
-                  <div class="desktop-onboarding__panel">
-                    <span class="desktop-onboarding__tile" aria-hidden="true">
-                      <IconUser size={18} strokeWidth={1.5} />
+                  <div class="desktop-onboarding__panel desktop-onboarding__panel--intro">
+                    <span class="desktop-onboarding__mark" aria-hidden="true">
+                      <ProviderIcon id="synsci" />
                     </span>
                     <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
                       Welcome to OpenScience
                     </h1>
+                    <p class="desktop-onboarding__tagline">The open research agent for ML engineering and science.</p>
+                    <ul class="desktop-onboarding__facts" aria-label="About OpenScience">
+                      <For each={INTRO_FACTS}>{(fact) => <li>{fact}</li>}</For>
+                    </ul>
                     <p class="desktop-onboarding__lead">
                       Create your account or sign in to continue. Your workspace supplies model access, shared
                       credentials, and the team wallet.
@@ -565,9 +564,7 @@ export function DesktopOnboardingController(
 
                 <Match when={step() === "ace"}>
                   <div class="desktop-onboarding__panel desktop-onboarding__panel--wide">
-                    <span class="desktop-onboarding__tile" aria-hidden="true">
-                      <IconBolt size={18} strokeWidth={1.5} />
-                    </span>
+                    <p class="desktop-onboarding__eyebrow">Ace · managed by Synthetic Sciences</p>
                     <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
                       Turn on Ace
                     </h1>
@@ -579,11 +576,8 @@ export function DesktopOnboardingController(
                       <For each={ACE_BENEFITS}>
                         {(benefit) => (
                           <li>
-                            <benefit.icon size={16} strokeWidth={1.5} aria-hidden="true" />
-                            <div>
-                              <strong>{benefit.title}</strong>
-                              <span>{benefit.detail}</span>
-                            </div>
+                            <strong>{benefit.title}</strong>
+                            <span>{benefit.detail}</span>
                           </li>
                         )}
                       </For>
@@ -634,9 +628,7 @@ export function DesktopOnboardingController(
 
                 <Match when={step() === "connect"}>
                   <div class="desktop-onboarding__panel desktop-onboarding__panel--wide">
-                    <span class="desktop-onboarding__tile" aria-hidden="true">
-                      <IconLink size={18} strokeWidth={1.5} />
-                    </span>
+                    <p class="desktop-onboarding__eyebrow">Your connections</p>
                     <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
                       Connect your own models
                     </h1>
@@ -762,9 +754,7 @@ export function DesktopOnboardingController(
 
                 <Match when={step() === "done"}>
                   <div class="desktop-onboarding__panel">
-                    <span class="desktop-onboarding__tile desktop-onboarding__tile--success" aria-hidden="true">
-                      <IconCheckCircle size={18} strokeWidth={1.5} />
-                    </span>
+                    <p class="desktop-onboarding__eyebrow desktop-onboarding__eyebrow--success">Setup complete</p>
                     <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
                       You're set
                     </h1>
