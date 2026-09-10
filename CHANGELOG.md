@@ -8,6 +8,8 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+## v2.0.88 — 2026-09-10
+
 ### Added
 
 - A conversation works in the project's connected read/write folder: relative
@@ -85,6 +87,10 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
   has since exited), which showed as "Failed to fetch" against a dead server.
 - Production bundles no longer read `.env.local`, so a leftover file from the
   e2e harness cannot bake its throwaway server port into the embedded UI.
+
+- A storage key listing that saw a sibling record vanish mid-scan (an atomic
+  replace in flight) no longer reports the whole prefix as empty; it looks
+  again, so a project's sessions cannot briefly disappear for one caller.
 
 ### Removed
 
