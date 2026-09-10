@@ -1,6 +1,6 @@
 import { Toast, showToast, toaster, type ToastVariant } from "@synsci/ui/toast"
 
-export type ToastKind = "info" | "success" | "warning" | "error"
+type ToastKind = "info" | "success" | "warning" | "error"
 
 interface ToastInput {
   title: string

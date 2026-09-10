@@ -3,7 +3,7 @@
 import { $ } from "bun"
 import { parseArgs } from "util"
 
-export const team = ["ishaan1124", "openscience", "openscience-agent[bot]", "actions-user"]
+const team = ["ishaan1124", "openscience", "openscience-agent[bot]", "actions-user"]
 const teamAuthors = new Set([...team, "Ishaan Gangwani"].map((author) => author.toLowerCase()))
 const stableTag = /^v(\d+)\.(\d+)\.(\d+)$/
 const internalCommit = /^(?:ignore|test|chore|ci|release)(?:\([^)]*\))?!?:/i
@@ -31,7 +31,7 @@ type Commit = {
   areas: Set<string>
 }
 
-export async function getCommits(from: string, to: string): Promise<Commit[]> {
+async function getCommits(from: string, to: string): Promise<Commit[]> {
   const fromRef = from.startsWith("v") ? from : `v${from}`
   const toRef = to === "HEAD" ? to : to.startsWith("v") ? to : `v${to}`
   await $`git rev-parse --verify ${`${fromRef}^{commit}`}`.quiet()
@@ -134,7 +134,7 @@ function humanize(message: string) {
   return clean[0]!.toUpperCase() + clean.slice(1)
 }
 
-export function generateChangelog(commits: Commit[]) {
+function generateChangelog(commits: Commit[]) {
   const grouped = new Map<string, string[]>()
   for (const commit of commits) {
     const section = getSection(commit.areas)
@@ -169,7 +169,7 @@ function contributorsFor(commits: Commit[]) {
   return contributors
 }
 
-export async function getContributors(from: string, to: string) {
+async function getContributors(from: string, to: string) {
   return contributorsFor(await getCommits(from, to))
 }
 

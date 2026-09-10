@@ -76,7 +76,7 @@ type WorkerOption = {
   model?: DelegationModel
 }
 
-export function takeModelGroups<T>(groups: OptionGroup<T>[], limit: number): OptionGroup<T>[] {
+function takeModelGroups<T>(groups: OptionGroup<T>[], limit: number): OptionGroup<T>[] {
   let remaining = Math.max(0, limit)
   const result: OptionGroup<T>[] = []
   for (const group of groups) {

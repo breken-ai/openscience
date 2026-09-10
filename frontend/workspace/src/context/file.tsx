@@ -27,7 +27,7 @@ export type SelectedLineRange = {
   endSide?: "additions" | "deletions"
 }
 
-export type FileViewState = {
+type FileViewState = {
   scrollTop?: number
   scrollLeft?: number
   selectedLines?: SelectedLineRange | null

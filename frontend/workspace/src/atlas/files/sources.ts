@@ -5,7 +5,7 @@ import { fileSourceName, normalizeFilePath, type FilesystemGrant } from "@/atlas
  * A saved deliverable, a working folder, and a recovery location have
  * materially different lifetimes, so they do not share one ambiguous bucket.
  */
-export type SourceGroup = "Results" | "Working files" | "Remote" | "Recovery"
+type SourceGroup = "Results" | "Working files" | "Remote" | "Recovery"
 
 export interface PaneSource {
   id: string

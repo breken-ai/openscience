@@ -5,7 +5,7 @@ import { uiStore } from "@/atlas/store/ui"
 import { linkedFileTarget, type FileOpenScope } from "@/atlas/file-viewer"
 import { toast } from "@/atlas/Toast"
 import { IconBookOpen, IconCheckCircle, IconDownload, IconFile, IconSearch } from "@/atlas/shared/Icon"
-import { FONT_CODE, FONT_MONO, FONT_SANS } from "@/styles/tokens"
+import { FONT_CODE, FONT_SANS } from "@/styles/tokens"
 import type { ArtifactInfo } from "@/artifacts/model"
 import { downloadBlob } from "@/artifacts/bytes"
 import { resolveArtifactPath } from "@/artifacts/context"
@@ -344,7 +344,7 @@ export function ManuscriptWorkbench(props: {
         }}
       >
         <span style={eyebrow()}>Manuscript</span>
-        <span style={{ flex: 1, "font-family": FONT_MONO, "font-size": "9px", color: "var(--color-text-faint)" }}>
+        <span style={{ flex: 1, "font-family": FONT_SANS, "font-size": "9px", color: "var(--color-text-faint)" }}>
           live source + preview
         </span>
         <button type="button" style={toolButton(panel() === "citations")} onClick={() => toggle("citations")}>
@@ -628,7 +628,7 @@ function BrowserShell(props: { component: string; title: string; detail: string;
         <strong style={{ "font-family": FONT_SANS, "font-size": "11px", color: "var(--color-text)" }}>
           {props.title}
         </strong>
-        <span style={{ "font-family": FONT_MONO, "font-size": "9px", color: "var(--color-text-faint)" }}>
+        <span style={{ "font-family": FONT_SANS, "font-size": "9px", color: "var(--color-text-faint)" }}>
           {props.detail}
         </span>
       </div>
@@ -811,7 +811,7 @@ function PaneLabel(props: { label: string; detail: string; active?: boolean }): 
       <span style={{ ...eyebrow(), color: props.active ? "var(--color-warning)" : "var(--color-text-faint)" }}>
         {props.label}
       </span>
-      <span style={{ flex: 1, "font-family": FONT_MONO, "font-size": "9px", color: "var(--color-text-faint)" }}>
+      <span style={{ flex: 1, "font-family": FONT_SANS, "font-size": "9px", color: "var(--color-text-faint)" }}>
         {props.detail}
       </span>
     </div>
@@ -846,7 +846,7 @@ function citationDetail(paths: string[]): string {
 
 function eyebrow(): JSX.CSSProperties {
   return {
-    "font-family": FONT_MONO,
+    "font-family": FONT_SANS,
     "font-size": "9px",
     "font-weight": "var(--font-weight-emphasis)",
     "letter-spacing": "0.08em",
@@ -933,7 +933,7 @@ function keyBadge(): JSX.CSSProperties {
     padding: "2px 5px",
     "border-radius": "3px",
     background: "var(--color-accent-subtle)",
-    "font-family": FONT_MONO,
+    "font-family": FONT_SANS,
     "font-size": "8px",
     color: "var(--color-text-muted)",
     "flex-shrink": 0,
@@ -953,7 +953,7 @@ function exportButton(disabled: boolean): JSX.CSSProperties {
     background: "var(--color-bg)",
     color: "var(--color-text-muted)",
     opacity: disabled ? 0.48 : 1,
-    "font-family": FONT_MONO,
+    "font-family": FONT_SANS,
     "font-size": "9px",
   }
 }
@@ -966,7 +966,7 @@ function reviewButton(): JSX.CSSProperties {
     padding: "4px 8px",
     "border-radius": "4px",
     border: "1px solid var(--color-border)",
-    "font-family": FONT_MONO,
+    "font-family": FONT_SANS,
     "font-size": "9px",
     color: "var(--color-text-muted)",
   }

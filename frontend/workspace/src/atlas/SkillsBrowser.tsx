@@ -10,7 +10,7 @@ import { Dialog } from "@synsci/ui/dialog"
 import { useDialog } from "@synsci/ui/context/dialog"
 import { Icon } from "@synsci/ui/icon"
 import { useSync } from "@/context/sync"
-import { FONT_MONO, FONT_SANS } from "@/styles/tokens"
+import { FONT_SANS } from "@/styles/tokens"
 import { IconSearch } from "@/atlas/shared/Icon"
 import { skillCatalogSnapshot } from "./skill-permissions"
 import { skillIconFor } from "./skill-icon"
@@ -122,7 +122,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
       >
         <span
           style={{
-            "font-family": FONT_MONO,
+            "font-family": FONT_SANS,
             "font-size": "10px",
             "letter-spacing": "normal",
             color: "var(--color-text-faint)",
@@ -132,7 +132,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
         </span>
         <span
           class="tab-fig"
-          style={{ "font-family": FONT_MONO, "font-size": "10px", color: "var(--color-text-muted)" }}
+          style={{ "font-family": FONT_SANS, "font-size": "10px", color: "var(--color-text-muted)" }}
         >
           {total()}
         </span>
@@ -159,7 +159,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
             all: "unset",
             cursor: "pointer",
             color: "var(--color-text-faint)",
-            "font-family": FONT_MONO,
+            "font-family": FONT_SANS,
             "font-size": "13px",
             padding: "0 4px",
           }}
@@ -176,7 +176,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
               style={{
                 padding: "18px 10px",
                 "text-align": "center",
-                "font-family": FONT_MONO,
+                "font-family": FONT_SANS,
                 "font-size": "11px",
                 color: "var(--color-text-faint)",
               }}
@@ -191,7 +191,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
                 <div
                   style={{
                     padding: "6px 8px 3px",
-                    "font-family": FONT_MONO,
+                    "font-family": FONT_SANS,
                     "font-size": "10px",
                     "letter-spacing": "normal",
                     color: "var(--color-text-faint)",
@@ -238,7 +238,7 @@ export function SkillsBrowser(props: { onPick: (name: string) => void; onClose: 
                             {(tag) => (
                               <span
                                 style={{
-                                  "font-family": FONT_MONO,
+                                  "font-family": FONT_SANS,
                                   "font-size": "10px",
                                   color: "var(--color-text-faint)",
                                   background: "var(--color-accent-subtle)",

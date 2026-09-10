@@ -119,4 +119,3 @@ export const coreManifests = {
       "Blocked until weights, databases, storage, licenses, an immutable image, and a bounded GPU canary are reviewed together.",
   }),
 } as const
-export const manifests = coreManifests

@@ -1,16 +1,15 @@
 // Publication preflight: the deterministic manuscript review the workbench
 // shows before a write-up is finalized.
 
-export type PublicationReviewKind =
-  "not-applicable" | "not-run" | "blocked" | "warnings" | "ready" | "finalized" | "stale"
+type PublicationReviewKind = "not-applicable" | "not-run" | "blocked" | "warnings" | "ready" | "finalized" | "stale"
 
-export type PublicationReviewCheck = "citation" | "numeric" | "figure" | "provenance"
+type PublicationReviewCheck = "citation" | "numeric" | "figure" | "provenance"
 
-export type PublicationReviewSeverity = "blocking" | "major" | "minor" | "info"
+type PublicationReviewSeverity = "blocking" | "major" | "minor" | "info"
 
-export type PublicationReviewFindingStatus = "open" | "resolved" | "overridden"
+type PublicationReviewFindingStatus = "open" | "resolved" | "overridden"
 
-export interface PublicationReviewFinding {
+interface PublicationReviewFinding {
   id: string
   check: PublicationReviewCheck
   severity: PublicationReviewSeverity

@@ -2,20 +2,16 @@ import { expect, type Page } from "@playwright/test"
 import { createOpenScienceClient } from "@synsci/sdk/v2/client"
 import { base64Encode } from "@synsci/util/encode"
 
-export const serverHost = process.env.PLAYWRIGHT_SERVER_HOST ?? "localhost"
-export const serverPort = process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"
+const serverHost = process.env.PLAYWRIGHT_SERVER_HOST ?? "localhost"
+const serverPort = process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"
 
 export const serverUrl = `http://${serverHost}:${serverPort}`
 export const serverName = `${serverHost}:${serverPort}`
-
-export const modKey = process.platform === "darwin" ? "Meta" : "Control"
-export const terminalToggleKey = "Control+Backquote"
 
 export const promptSelector = '[data-component="prompt-input"]'
 export const terminalSelector = '[data-component="terminal"]'
 export const modelTriggerSelector = "[data-model-settings-trigger]"
 export const modelPopoverSelector = "[data-model-settings-popover]"
-export const researchToolsSelector = ".workspace-composer__research-tools"
 
 export function createSdk(directory?: string) {
   return createOpenScienceClient({ baseUrl: serverUrl, directory, throwOnError: true })
@@ -50,16 +46,12 @@ export async function getWorktree() {
   return data.worktree
 }
 
-export function dirSlug(directory: string) {
+function dirSlug(directory: string) {
   return base64Encode(directory)
 }
 
 export function dirPath(directory: string) {
   return `/${dirSlug(directory)}`
-}
-
-export function sessionPath(directory: string, sessionID?: string) {
-  return `${dirPath(directory)}/session${sessionID ? `/${sessionID}` : ""}`
 }
 
 const prefix = (value: string) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`)
@@ -141,14 +133,6 @@ export async function openConnectedFile(page: Page, folder: string, filename: st
   return tab
 }
 
-/** Opens the composer Tools menu where request-scoped controls live. */
-export async function openResearchTools(page: Page) {
-  const tools = page.locator(researchToolsSelector)
-  if ((await tools.getAttribute("open")) === null) await tools.locator(":scope > summary").click()
-  await expect(tools.getByRole("group", { name: "Tools", exact: true })).toBeVisible()
-  return tools
-}
-
 async function openModelOptions(page: Page) {
   const trigger = page.locator("[data-model-effort-chip]")
   const popover = page.locator('[data-model-settings-popover][data-model-popover-kind="effort"]')
@@ -183,19 +167,4 @@ export async function modelRowValue(page: Page, kind: "effort" | "speed") {
   const trigger = page.locator("[data-model-effort-chip]")
   if (kind === "effort") return (await trigger.locator("strong").innerText()).trim()
   return (await trigger.getAttribute("aria-label"))?.includes("Fast mode on") ? "Fast" : "Standard"
-}
-
-/** Connects an outside folder through the Files pane UI form. */
-export async function connectFolder(page: Page, folder: string, access: "read" | "write") {
-  await openFilesSources(page)
-  await page.locator("[data-source-button]").click()
-  await page.getByRole("menuitem", { name: "Add folder…", exact: true }).click()
-  const form = page.getByRole("form", { name: "Connect a folder" })
-  await form.getByLabel("Folder path").fill(folder)
-  await form.getByLabel("Folder access").selectOption(access)
-  await form.getByLabel("Folder access duration").selectOption("session")
-  await form.getByRole("button", { name: "Connect", exact: true }).click()
-  await expect(form).toBeHidden()
-  const name = folder.split("/").filter(Boolean).pop() ?? folder
-  await pickSource(page, name)
 }

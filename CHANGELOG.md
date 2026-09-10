@@ -8,18 +8,112 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
-- New first-run setup, shown once to every install from this release on: a centered card with four steps. Account (required, browser sign-up/sign-in or a pasted key), Ace (recommended, opens billing and continues when Ace is on), connect your own models (ChatGPT / Codex, Anthropic, OpenAI, OpenRouter, Firecrawl keys, Modal detection, with provider logos and inline key entry), and done. Project creation moved to the Projects page, whose empty state now offers **New project**. The terminal install runs the same four steps inline the first time `openscience` starts (`openscience init` repeats them); scripted, CI, and restarted launches skip it.
-
-- Linux supervised commands inherit blocking output handles so high-volume native tools do not abort with `EAGAIN` when their output pipe fills.
-
-- Oversized incomplete Bash output lines and private-key blocks are replaced with explicit redaction markers; provenance previews are redacted before clipping.
-
-- Keep launcher CPU fallback confined to a read-only startup probe, respect scientific-source cooldowns without early retries, preserve special characters in local file links, and verify upgrades when the old versioned executable remains on disk.
+### Fixed
 
 - Stopping a turn now cancels the MCP tool call that is still running: OpenScience sends the protocol cancellation to the server instead of abandoning the request, ignores a reply that arrives afterwards, and releases the update lease the call was holding.
 
+## v2.0.88 — 2026-09-10
+
 ### Added
 
+- A conversation works in the project's connected read/write folder: relative
+  paths the agent writes land there and stay, while caches and throwaway
+  intermediates keep going to session scratch. The composer shows the working
+  folder as a chip beside Tools, where a conversation can be pointed at another
+  connected folder or at scratch. `session.create` accepts `workingRoot`, and
+  `PUT /session/:id/filesystem/working-root` changes it later.
+- Shell commands that need the network (`git push`, `gh`, `hf`, package
+  installs, `curl`) ask once for their destination host and then run with the
+  network and the same file confinement, using the GitHub login `gh` holds or a
+  saved credential and the Hugging Face token. The Repository tab's push uses the
+  same path. **Customize → Credentials** imports logins this computer already
+  holds in one click, and a request card that asks for a login opens Credentials
+  instead of inviting a paste into the chat.
+- Short follow-ups such as "give me the abstract as LaTeX" run as quick tasks:
+  no delegation posture, the model's low reasoning variant unless one was
+  chosen, and a reminder to answer in one pass.
+
+### Changed
+
+- The activity trace reads like a log of work: one "Worked for 2m 3s" line
+  folds the whole trace after a turn, and expanding it shows rows for each
+  thought ("Thought 57s"), each burst of exploration ("Explored 4 files, ran 2
+  commands"), each batch of edits, and each delegated agent, with narration in
+  place. Rows stay mounted while folded, so a pending request or a draft answer
+  survives the fold. Delegated agent rows lead with the task, name the agent
+  quietly at the right, and show their state on a second line.
+- Session outputs is one folded line ("3 files written this turn") that opens on
+  demand.
+- A stopped turn says so on its header line ("Stopped after 2m 3s") and nothing
+  more; a stop the provider or a credential change caused keeps its reason as one
+  quiet line. The "Stopped / Outputs kept / Left pending" card is gone; the error
+  card keeps only its message.
+- The trace sits on a 4px rhythm: 28px rows everywhere (nested tool rows
+  included), narration with even margins, a clear breath before the answer, and
+  chevrons that appear on hover. Finished tool rows are text-first; the glyph
+  returns only while a call runs, waits, fails, or is cancelled.
+- Delegated agent rows use one accent: only a failed worker or one waiting on the
+  user is coloured; partial and cancelled outcomes read in words. The footer keeps
+  the model and Fusion handoff, and its actions are real buttons.
+- Worker sessions no longer offer a composer: the lead writes their brief and
+  reads their handoff, and the page points back to the lead.
+- Publishing stays with the lead: the task tool refuses a brief whose deliverable
+  is a push, release, or upload, and workers are told so.
+- A conversation that fails to load says so with a retry instead of posing as a
+  new, empty session.
+- The workspace speaks one colour vocabulary (`--color-*`), checked by a design
+  contract; the migration also fixed hairlines that referenced an undefined
+  alias and never rendered.
+- The default theme is neutral grey in both schemes: dark backgrounds from
+  `#191919` up, light from `#f7f7f7`, white-alpha hairlines, a light-grey brand
+  surface instead of teal, and a muted slate only for links. Inline code is a
+  quiet chip in the text colour rather than a green accent.
+- Every trace row shares one type level (13/20, regular weight): the "Worked
+  for" line, thought and burst rows, nested tool rows, agent rows and their
+  details. Tool rows read as what happened ("Ran", "Read", "Searched", "Edited",
+  "Wrote", "Fetched") and as what is happening while a call runs.
+- The first-run setup is one quiet card: a small mark and step count, a title,
+  one sentence, one action. No icon tiles, benefit cards, dots, or eyebrows;
+  connection rows are plain logos with one control each. Three text styles from
+  the shared scale, so every step reads the same.
+
+### Fixed
+
+- A compute job history one build cannot read no longer takes the whole server
+  down. Credential teardown used to reject on the first unreadable
+  `jobs.json`, and every request then failed with "Credential invalidation did
+  not complete"; the unreadable history is preserved and skipped instead, and
+  the inner handler errors are logged by name. The execution decision's new
+  `scratch` field is optional so histories written by earlier builds keep
+  parsing.
+- A page served by a local OpenScience server no longer defers to a stored
+  default server on another loopback port (a desktop sidecar or dev server that
+  has since exited), which showed as "Failed to fetch" against a dead server.
+- Production bundles no longer read `.env.local`, so a leftover file from the
+  e2e harness cannot bake its throwaway server port into the embedded UI.
+
+- A storage key listing that saw a sibling record vanish mid-scan (an atomic
+  replace in flight) no longer reports the whole prefix as empty; it looks
+  again, so a project's sessions cannot briefly disappear for one caller.
+
+### Removed
+
+- The desktop onboarding-operation endpoints and the `desktop_onboarding_operations`
+  preference. Setup no longer creates projects, so nothing called them.
+
+## v2.0.73–v2.0.87 — 2026-09-09
+
+### Added
+
+- New first-run setup, shown once to every install from this release on: a
+  centered card with four steps. Account (required, browser sign-up/sign-in or a
+  pasted key), Ace (recommended, opens billing and continues when Ace is on),
+  connect your own models (ChatGPT / Codex, Anthropic, OpenAI, OpenRouter,
+  Firecrawl keys, Modal detection, with provider logos and inline key entry),
+  and done. Project creation moved to the Projects page, whose empty state now
+  offers **New project**. The terminal install runs the same four steps inline
+  the first time `openscience` starts (`openscience init` repeats them);
+  scripted, CI, and restarted launches skip it.
 - **Fusion**, an opt-in way to run delegated work: the model you selected stays
   the lead and hands substantial, well-specified work to one persistent worker
   on the configured Worker model, which is resumed for every execute task
@@ -470,6 +564,15 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Fixed
 
+- Linux supervised commands inherit blocking output handles so high-volume
+  native tools do not abort with `EAGAIN` when their output pipe fills.
+- Oversized incomplete Bash output lines and private-key blocks are replaced
+  with explicit redaction markers; provenance previews are redacted before
+  clipping.
+- Keep launcher CPU fallback confined to a read-only startup probe, respect
+  scientific-source cooldowns without early retries, preserve special characters
+  in local file links, and verify upgrades when the old versioned executable
+  remains on disk.
 - Stop a repeated tool call before it runs: the third identical call used to
   execute while its approval card was still showing, and a deny only ended
   the turn afterwards. The check now sits in front of the tool itself and

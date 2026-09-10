@@ -14,7 +14,7 @@ interface PartBase {
   end: number
 }
 
-export interface TextPart extends PartBase {
+interface TextPart extends PartBase {
   type: "text"
 }
 
@@ -48,7 +48,7 @@ export interface ImageAttachmentPart {
 export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ConversationAttachmentPart | ImageAttachmentPart
 export type Prompt = ContentPart[]
 
-export type FileContextItem = {
+type FileContextItem = {
   type: "file"
   path: string
   selection?: FileSelection

@@ -34,8 +34,6 @@ import {
 import { projectHref } from "@/utils/project-route"
 import { NativeDirectoryPickerUnavailable } from "@/utils/native-picker"
 
-export { ProjectsWorkbench, type HomeProject }
-
 export default function Home(): JSX.Element {
   const sync = useGlobalSync()
   const layout = useLayout()

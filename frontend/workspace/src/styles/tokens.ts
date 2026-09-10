@@ -6,8 +6,6 @@ export const FONT_SANS =
  *  user's mono-font choice applies everywhere code renders. */
 export const FONT_CODE =
   'var(--font-family-mono, "Söhne Mono", "Sohne Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace)'
-/** Historical alias: this is UI text, not a monospace face. Use FONT_CODE for code. */
-export const FONT_MONO = FONT_SANS
 
 /** Semantic UI weight scale — mirrors the variables in @synsci/ui/theme.css. */
 export const FONT_WEIGHT = {

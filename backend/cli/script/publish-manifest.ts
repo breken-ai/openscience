@@ -1,4 +1,4 @@
-export interface WrapperSourcePackage {
+interface WrapperSourcePackage {
   name: string
   optionalDependencies?: Record<string, string>
 }

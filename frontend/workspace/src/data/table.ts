@@ -1,7 +1,7 @@
 export type TableFormat = "csv" | "tsv" | "json" | "jsonl"
-export type ColumnType = "number" | "boolean" | "date" | "string"
+type ColumnType = "number" | "boolean" | "date" | "string"
 
-export interface TableSchema {
+interface TableSchema {
   name: string
   type: ColumnType
   missing: number

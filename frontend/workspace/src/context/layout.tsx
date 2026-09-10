@@ -23,7 +23,7 @@ type SessionView = {
   reviewOpen?: string[]
 }
 
-export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
+type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
 export type ReviewDiffStyle = "unified" | "split"
 

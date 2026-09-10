@@ -1,7 +1,7 @@
 import type { TableFormat } from "@/data/table"
 import { LANG, extension } from "./artifact-thumb"
 
-export type ViewerKind = "markdown" | "html" | "table" | "notebook" | "image" | "pdf" | "code" | "text" | "binary"
+type ViewerKind = "markdown" | "html" | "table" | "notebook" | "image" | "pdf" | "code" | "text" | "binary"
 
 export type ViewerResolution = {
   kind: ViewerKind
