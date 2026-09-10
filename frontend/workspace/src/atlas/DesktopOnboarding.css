@@ -1,41 +1,22 @@
-/* First-run setup: one centered card on the plain app background. Wordmark
-   above, progress dots inside, one panel per step, one primary action. Same
-   tokens as the workspace so the first screen matches the app that follows. */
+/* First-run setup. One centered card, content left-aligned inside it, and
+   exactly three text styles: title (x-large / emphasis), body (base / regular,
+   muted) and small (small / regular, muted). Nothing decorative. */
 .desktop-onboarding {
-  position: relative;
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Safe centering: a card taller than a small window scrolls from the top
-     instead of clipping the wordmark above the viewport. */
-  justify-content: safe center;
-  gap: 28px;
+  align-items: safe center;
+  justify-content: center;
   padding: 40px 24px;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-family-sans);
-  isolation: isolate;
-}
-
-/* Ambient depth behind the card: a soft top glow and a dot grid that fades
-   out before it reaches the card. Both come from the text colour so they hold
-   up in every theme. */
-.desktop-onboarding::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background:
-    radial-gradient(720px 360px at 50% -80px, color-mix(in srgb, var(--color-text) 7%, transparent), transparent 70%),
-    radial-gradient(circle at center, color-mix(in srgb, var(--color-text) 9%, transparent) 1px, transparent 1.5px) 0
-      0 / 24px 24px;
-  mask-image: radial-gradient(900px 520px at 50% 30%, black 20%, transparent 100%);
-  pointer-events: none;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.5;
 }
 
 .desktop-onboarding--loading {
-  gap: 0;
+  flex-direction: column;
 }
 
 .desktop-onboarding__loading {
@@ -43,218 +24,96 @@
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  font-size: 13px;
-}
-
-.desktop-onboarding__brand[data-hidden="true"] {
-  visibility: hidden;
+  font-size: var(--font-size-medium);
 }
 
 .desktop-onboarding__card {
-  position: relative;
   display: flex;
-  width: min(560px, 100%);
+  width: min(440px, 100%);
   flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  padding: 28px 40px 36px;
+  gap: 16px;
+  padding: 32px 36px;
   border: 1px solid var(--color-border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--color-surface);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--color-text) 4%, transparent) inset;
 }
 
-/* Progress dots */
-.desktop-onboarding__dots {
+.desktop-onboarding__top {
   display: flex;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.desktop-onboarding__dots li {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--color-border-strong);
-  transition:
-    background-color 160ms ease,
-    width 160ms ease;
-}
-
-.desktop-onboarding__dots li[data-state="done"] {
-  background: var(--color-text-faint);
-}
-
-.desktop-onboarding__dots li[data-state="current"] {
-  width: 18px;
-  background: var(--color-text);
-}
-
-/* Panel */
-.desktop-onboarding__panel {
-  display: flex;
-  width: 100%;
-  max-width: 400px;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  text-align: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
-.desktop-onboarding__panel--wide {
-  max-width: none;
-}
-
-/* Intro hero: the brand mark in a soft aura instead of a generic icon tile. */
-.desktop-onboarding__mark {
-  position: relative;
-  display: grid;
-  width: 72px;
-  height: 72px;
-  place-items: center;
-  margin-bottom: 6px;
-  border-radius: 999px;
-  background: radial-gradient(
-    circle at 50% 40%,
-    color-mix(in srgb, var(--color-text) 12%, transparent),
-    color-mix(in srgb, var(--color-text) 3%, transparent) 60%,
-    transparent 100%
-  );
+.desktop-onboarding__logo {
+  width: 22px;
+  height: 22px;
   color: var(--color-text);
 }
 
-.desktop-onboarding__mark::after {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-text) 14%, transparent);
-  border-radius: 999px;
-}
-
-.desktop-onboarding__mark svg {
-  width: 30px;
-  height: 30px;
-}
-
-.desktop-onboarding__panel--intro h1 {
-  font-size: 26px;
-}
-
-.desktop-onboarding__tagline {
-  margin: -4px 0 0;
-  max-width: 34ch;
-  color: var(--color-text);
-  font-size: 14px;
+.desktop-onboarding__count,
+.desktop-onboarding__note,
+.desktop-onboarding__link,
+.desktop-onboarding__row-done {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
   line-height: 1.5;
-  text-wrap: balance;
 }
 
-.desktop-onboarding__facts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 0;
-  margin: 2px 0 6px;
-  padding: 0;
-  list-style: none;
-  color: var(--color-text-faint);
-  font-size: 12px;
-  letter-spacing: 0.01em;
+.desktop-onboarding__count {
+  font-variant-numeric: tabular-nums;
 }
 
-.desktop-onboarding__facts li + li::before {
-  content: "·";
-  margin: 0 10px;
-}
-
-.desktop-onboarding__eyebrow {
-  margin: 0 0 -4px;
-  color: var(--color-text-faint);
-  font-size: 12px;
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.01em;
-}
-
-.desktop-onboarding__eyebrow--success {
-  color: var(--color-success);
-}
-
-.desktop-onboarding__panel h1 {
+.desktop-onboarding__card h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: var(--font-weight-medium);
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-  text-wrap: balance;
+  font-size: var(--font-size-x-large);
+  font-weight: var(--font-weight-emphasis);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
-.desktop-onboarding__panel h1:focus {
+.desktop-onboarding__card h1:focus {
   outline: none;
 }
 
-.desktop-onboarding__lead {
-  margin: 0;
-  max-width: 40ch;
+.desktop-onboarding__body {
+  margin: -8px 0 0;
   color: var(--color-text-muted);
-  font-size: 13px;
-  line-height: 1.55;
-  text-wrap: pretty;
 }
 
-/* Actions: one primary, a status line, a quiet link */
 .desktop-onboarding__actions {
   display: flex;
-  width: 100%;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 8px;
 }
 
-.desktop-onboarding__actions [data-component="button"][data-size="large"] {
-  min-width: 260px;
+.desktop-onboarding__actions > [data-component="button"][data-size="large"] {
+  width: 100%;
 }
 
-.desktop-onboarding__recommended {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.desktop-onboarding__recommended small {
-  position: absolute;
-  left: calc(100% + 10px);
-  padding: 2px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  white-space: nowrap;
-}
-
-.desktop-onboarding__status {
+.desktop-onboarding__note {
   margin: 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  text-wrap: pretty;
+}
+
+.desktop-onboarding__done {
+  margin: 0;
+  color: var(--color-success);
+  font-weight: var(--font-weight-medium);
 }
 
 .desktop-onboarding__link {
-  padding: 4px 6px;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
   background: transparent;
-  color: var(--color-text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: transparent;
-  text-underline-offset: 3px;
+  text-underline-offset: 0.18em;
   transition:
     color 120ms ease,
     text-decoration-color 120ms ease;
@@ -267,7 +126,8 @@
 
 .desktop-onboarding__link:focus-visible {
   outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .desktop-onboarding__link:disabled {
@@ -275,185 +135,74 @@
   opacity: 0.6;
 }
 
-.desktop-onboarding__done {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--color-success);
-  font-size: 13px;
-  font-weight: var(--font-weight-medium);
-}
-
-/* Inline key entry */
+/* Inline key entry: field and button on one row. */
 .desktop-onboarding__inline {
   display: grid;
   width: 100%;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+  align-items: center;
   gap: 8px;
-  text-align: left;
 }
 
-.desktop-onboarding__field {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-/* Ace benefits: two columns of quiet tiles */
-.desktop-onboarding__benefits {
-  display: grid;
-  width: 100%;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 8px 0 0;
+/* Connection rows: logo, name, one control. Hairlines, no boxes. */
+.desktop-onboarding__rows {
+  margin: 0;
   padding: 0;
   list-style: none;
-  text-align: left;
-}
-
-.desktop-onboarding__benefits li {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 12px 12px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-bg);
-}
-
-/* A hairline accent instead of an icon: quieter, and it reads as a list. */
-.desktop-onboarding__benefits li::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 0;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--color-border-strong);
-}
-
-.desktop-onboarding__benefits strong {
-  font-size: 12.5px;
-  font-weight: var(--font-weight-medium);
-  line-height: 1.3;
-}
-
-.desktop-onboarding__benefits span {
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-/* Connections list */
-.desktop-onboarding__connections {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  margin: 8px 0 0;
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg);
-  list-style: none;
-  text-align: left;
-}
-
-.desktop-onboarding__connections li + li {
   border-top: 1px solid var(--color-border);
 }
 
-.desktop-onboarding__connection {
+.desktop-onboarding__rows > li {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.desktop-onboarding__row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 8px 12px;
+  min-height: 48px;
+  padding: 6px 0;
 }
 
-.desktop-onboarding__connection-copy {
+.desktop-onboarding__rows .desktop-onboarding__inline {
+  padding: 0 0 12px 36px;
+}
+
+/* The logo box normally comes from the Settings dialog's styles, which are
+   not mounted yet on the first run. Plain marks, no tile. */
+.desktop-onboarding .settings-provider-logo {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text);
 }
 
-.desktop-onboarding__connection-copy strong {
-  font-size: 13px;
-  font-weight: var(--font-weight-medium);
-}
-
-.desktop-onboarding__connection-copy small {
+.desktop-onboarding__row-name {
   overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.desktop-onboarding__connections li[data-connected="true"] .desktop-onboarding__connection-copy small {
+.desktop-onboarding__row-done {
   color: var(--color-success);
-}
-
-.desktop-onboarding__connection-done {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  color: var(--color-success);
-}
-
-.desktop-onboarding__connection [data-component="button"] svg {
-  margin-left: 2px;
-  transition: transform 160ms ease;
-}
-
-.desktop-onboarding__connections li[data-open="true"] .desktop-onboarding__connection [data-component="button"] svg {
-  transform: rotate(180deg);
-}
-
-.desktop-onboarding__connections .desktop-onboarding__inline {
-  padding: 0 12px 12px 56px;
-}
-
-.desktop-onboarding__note {
-  margin: 0;
-  max-width: 52ch;
-  color: var(--color-text-faint);
-  font-size: 12px;
-  line-height: 1.5;
-  text-wrap: pretty;
 }
 
 /* Summary */
 .desktop-onboarding__summary {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  margin: 8px 0 0;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-bg);
-  text-align: left;
+  margin: 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .desktop-onboarding__summary > div {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 12px;
-  padding: 10px 14px;
-  font-size: 13px;
-}
-
-.desktop-onboarding__summary > div + div {
-  border-top: 1px solid var(--color-border);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .desktop-onboarding__summary dt {
@@ -467,19 +216,16 @@
   white-space: nowrap;
 }
 
-/* Error, back */
 .desktop-onboarding__error {
   width: 100%;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent);
-  border-radius: 10px;
+  border-radius: 8px;
   outline: none;
   background: color-mix(in srgb, var(--color-error) 8%, transparent);
   color: var(--color-error);
-  font-size: 12.5px;
-  line-height: 1.5;
-  text-align: left;
+  font-size: var(--font-size-medium);
 }
 
 .desktop-onboarding__error:focus-visible {
@@ -487,41 +233,13 @@
   outline-offset: 2px;
 }
 
-.desktop-onboarding__back {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px 4px 5px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
-}
-
-.desktop-onboarding__back:hover {
-  background: var(--color-accent-subtle);
-  color: var(--color-text);
-}
-
-.desktop-onboarding__back:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
+.desktop-onboarding__foot {
+  display: flex;
+  margin-top: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desktop-onboarding__dots li,
-  .desktop-onboarding__link,
-  .desktop-onboarding__back,
-  .desktop-onboarding__connection [data-component="button"] svg {
+  .desktop-onboarding__link {
     transition: none;
   }
 }
@@ -532,15 +250,10 @@
   }
 
   .desktop-onboarding__card {
-    padding: 24px 20px 28px;
+    padding: 24px 20px;
   }
 
-  .desktop-onboarding__benefits {
-    grid-template-columns: 1fr;
-  }
-
-  .desktop-onboarding__connections .desktop-onboarding__inline {
-    grid-template-columns: 1fr;
-    padding-left: 12px;
+  .desktop-onboarding__rows .desktop-onboarding__inline {
+    padding-left: 0;
   }
 }
