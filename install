@@ -147,7 +147,11 @@ else
 
     needs_baseline=false
     if [ "$arch" = "x64" ]; then
-      if [ "$os" = "linux" ]; then
+      # Some Windows POSIX environments expose CPU flags through
+      # /proc/cpuinfo. Unlike the npm wrapper there is no illegal-instruction
+      # probe to recover after launch, so missing or unreadable flags resolve
+      # to the baseline archive that runs on every x86-64 CPU.
+      if [ "$os" = "linux" ] || [ "$os" = "windows" ]; then
         if ! grep -qi avx2 /proc/cpuinfo 2>/dev/null; then
           needs_baseline=true
         fi
