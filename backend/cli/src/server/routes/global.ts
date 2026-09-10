@@ -20,6 +20,22 @@ const log = Log.create({ service: "server" })
 
 export const GlobalDisposedEvent = BusEvent.define("global.disposed", z.object({}))
 
+/** Upper bound on events buffered per SSE client before the oldest are dropped. */
+const EVENT_QUEUE_LIMIT = 2000
+
+type GlobalEvent = { directory?: string; payload: { type: string; properties?: unknown } }
+
+/**
+ * Part id of a streamed `message.part.updated` event, used to coalesce a full
+ * queue. Scoped by directory because this stream multiplexes every project,
+ * where the sibling `/event` carries one.
+ */
+function partID(event: GlobalEvent) {
+  if (event.payload.type !== "message.part.updated") return
+  const part = (event.payload.properties as { part?: { id?: unknown } } | undefined)?.part
+  return typeof part?.id === "string" ? `${event.directory ?? ""}:${part.id}` : undefined
+}
+
 const ProjectName = z
   .string()
   .transform((name) => name.normalize("NFC").trim())
@@ -173,41 +189,81 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         log.info("global event connected")
         return streamSSE(c, async (stream) => {
-          stream.writeSSE({
-            data: JSON.stringify({
-              payload: {
-                type: "server.connected",
-                properties: {},
-              },
-            }),
-          })
-          async function handler(event: any) {
-            await stream.writeSSE({
-              data: JSON.stringify(event),
-            })
-          }
-          GlobalBus.on("event", handler)
+          const connected = (): GlobalEvent => ({ payload: { type: "server.connected", properties: {} } })
 
           // Send heartbeat every 30s to prevent WKWebView timeout (60s default)
           const heartbeat = setInterval(() => {
-            stream.writeSSE({
-              data: JSON.stringify({
-                payload: {
-                  type: "server.heartbeat",
-                  properties: {},
-                },
-              }),
-            })
+            push({ payload: { type: "server.heartbeat", properties: {} } })
           }, 30000)
 
-          await new Promise<void>((resolve) => {
-            stream.onAbort(() => {
-              clearInterval(heartbeat)
-              GlobalBus.off("event", handler)
-              resolve()
-              log.info("global event disconnected")
-            })
-          })
+          // The subscriber never awaits the socket. Events land in a bounded
+          // per-connection queue drained by one writer loop, so a stalled
+          // browser tab cannot grow this connection without bound: `emit`
+          // discards the promise an async listener returns, so nothing else
+          // here would ever apply backpressure.
+          const queue: GlobalEvent[] = []
+          const done = Promise.withResolvers<void>()
+          const state = { closed: false, draining: false, overflowed: false }
+          const cleanup = () => {
+            if (state.closed) return
+            state.closed = true
+            clearInterval(heartbeat)
+            GlobalBus.off("event", handler)
+            done.resolve()
+            log.info("global event disconnected")
+          }
+          const drain = async () => {
+            if (state.draining) return
+            state.draining = true
+            try {
+              for (;;) {
+                const event = state.closed ? undefined : queue.shift()
+                if (!event) break
+                await stream.writeSSE({ data: JSON.stringify(event) })
+              }
+            } catch (error) {
+              log.debug("global event write failed", { error })
+              cleanup()
+            } finally {
+              state.draining = false
+            }
+          }
+          const push = (event: GlobalEvent) => {
+            if (state.closed) return
+            if (queue.length >= EVENT_QUEUE_LIMIT) {
+              const part = partID(event)
+              // Replace the newest queued update for the part, never an older
+              // one, so the client still receives states in order.
+              const index = part === undefined ? -1 : queue.findLastIndex((item) => partID(item) === part)
+              if (index >= 0) {
+                queue[index] = event
+                return
+              }
+              // Drop a queued part update before anything else: the client
+              // reconciles whole parts, whereas a dropped project, session or
+              // permission event leaves it stale for good.
+              const oldestPart = queue.findIndex((item) => partID(item) !== undefined)
+              const victim =
+                oldestPart >= 0 ? oldestPart : queue.findIndex((item) => item.payload.type !== "server.connected")
+              queue.splice(victim >= 0 ? victim : 0, 1)
+              if (!state.overflowed) {
+                state.overflowed = true
+                log.warn("global event queue overflow; dropping oldest events", { limit: EVENT_QUEUE_LIMIT })
+                // Whatever was lost, the client re-hydrates on this frame
+                // exactly as it does after a reconnect.
+                queue.unshift(connected())
+              }
+            }
+            queue.push(event)
+            void drain()
+          }
+          const handler = (event: GlobalEvent) => push(event)
+
+          push(connected())
+          GlobalBus.on("event", handler)
+
+          stream.onAbort(cleanup)
+          await done.promise
         })
       },
     )
