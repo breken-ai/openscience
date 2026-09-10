@@ -36,6 +36,23 @@ async function install(shims: Record<string, string>) {
 }
 
 const linuxArm64 = 'case "$1" in -m) echo aarch64 ;; *) echo Linux ;; esac'
+const windowsX64 = 'case "$1" in -m) echo x86_64 ;; *) echo MINGW64_NT-10.0-22631 ;; esac'
+type Cpuinfo = "avx2" | "legacy" | "unreadable"
+// Every grep except the Windows CPU probe keeps the host implementation.
+const cpuinfo = (state: Cpuinfo) => {
+  const status = state === "avx2" ? 0 : state === "legacy" ? 1 : 2
+  return `for arg in "$@"; do [ "$arg" = /proc/cpuinfo ] && exit ${status}; done; exec /usr/bin/grep "$@"`
+}
+// Answers the release lookup, then reports the asset the installer asked for
+// instead of downloading it.
+const release = `case "$*" in *api.github.com*) echo '"tag_name": "v9.9.9"'; exit 0 ;; esac; echo "requested $*" >&2; exit 22`
+const windows = (cpu: Cpuinfo) => ({
+  uname: windowsX64,
+  grep: cpuinfo(cpu),
+  curl: release,
+  unzip: "exit 0",
+  openscience: "echo 0.0.0",
+})
 // Stands in for the GitHub release lookup so a run that passes the guards
 // stops at the version fetch instead of reaching the network.
 const offline = "exit 22"
@@ -57,5 +74,23 @@ describe.skipIf(process.platform === "win32")("install script", () => {
       expect(result.output).toContain("Failed to fetch version information")
       expect(result.code).toBe(1)
     }
+  })
+
+  test("downloads the Windows baseline archive when the CPU lacks AVX2", async () => {
+    const result = await install(windows("legacy"))
+    expect(result.output).toContain("openscience-windows-x64-baseline.zip")
+    expect(result.code).not.toBe(0)
+  })
+
+  test("downloads the Windows baseline archive when CPU flags are unreadable", async () => {
+    const result = await install(windows("unreadable"))
+    expect(result.output).toContain("openscience-windows-x64-baseline.zip")
+    expect(result.code).not.toBe(0)
+  })
+
+  test("keeps the optimized Windows archive when the CPU reports AVX2", async () => {
+    const result = await install(windows("avx2"))
+    expect(result.output).toContain("openscience-windows-x64.zip")
+    expect(result.output).not.toContain("baseline")
   })
 })

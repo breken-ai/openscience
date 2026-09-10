@@ -11,6 +11,7 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 ### Fixed
 
 - Stopping a turn now cancels the MCP tool call that is still running: OpenScience sends the protocol cancellation to the server instead of abandoning the request, ignores a reply that arrives afterwards, and releases the update lease the call was holding.
+- The shell installer uses CPU flags exposed by Windows POSIX environments and defaults to the baseline archive when they are absent or unreadable, so x86-64 Windows hosts without confirmed AVX2 support avoid an optimized binary that dies with an illegal instruction.
 
 ## v2.0.88 — 2026-09-10
 
