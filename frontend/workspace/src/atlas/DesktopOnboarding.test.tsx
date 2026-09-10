@@ -210,7 +210,7 @@ test("a fresh desktop starts at the account step with no way to skip it", async 
   expect(button(view.host, "Continue with Synthetic Sciences").disabled).toBe(false)
   expect(Array.from(view.host.querySelectorAll("button")).some((el) => /skip/i.test(el.textContent ?? ""))).toBe(false)
   expect(view.host.textContent).not.toContain("Research workspace loaded")
-  expect(view.host.querySelector('[aria-current="step"]')).not.toBeNull()
+  expect(view.host.textContent).toContain("1 / 4")
 })
 
 test("browser sign-in waits for workspace approval, then advances to Ace", async () => {
@@ -219,8 +219,8 @@ test("browser sign-in waits for workspace approval, then advances to Ace", async
   const view = app.mount()
   await until(() => heading(view.host) === "Welcome to OpenScience")
   button(view.host, "Continue with Synthetic Sciences").click()
-  await until(() => view.host.textContent?.includes("Waiting for sign-in") === true)
-  expect(view.host.querySelector('[role="status"]')?.textContent).toContain("Choose your workspace in your browser")
+  await until(() => view.host.textContent?.includes("Waiting for your browser") === true)
+  expect(view.host.querySelector('[role="status"]')?.textContent).toContain("Finish signing in in your browser")
   await until(() => typeof release === "function")
   release!()
   await until(() => heading(view.host) === "Turn on Ace")
@@ -233,7 +233,7 @@ test("a sign-in key is an alternative to the browser, and a bad key stays on the
   const app = fixture()
   const view = app.mount()
   await until(() => heading(view.host) === "Welcome to OpenScience")
-  button(view.host, "Use a sign-in key instead").click()
+  button(view.host, "Use a sign-in key").click()
   await until(() => view.host.querySelector("input") !== null)
   setInput(view.host, "nope")
   button(view.host, "Sign in").click()
@@ -270,7 +270,7 @@ test("turning on Ace opens billing, polls the wallet, then selects managed model
   expect(view.host.textContent).toContain("$12.50 available")
   expect(app.state.billing).toBe("managed")
   button(view.host, "Continue").click()
-  await until(() => heading(view.host) === "Connect your own models")
+  await until(() => heading(view.host) === "Connect your models")
   expect(view.host.textContent).toContain("used alongside Ace")
   await until(() => app.state.step === "connect")
 })
@@ -283,8 +283,8 @@ test("skipping Ace warns that a model is still needed, and Back returns to Ace",
     Array.from(view.host.querySelectorAll("button")).some((el) => el.textContent?.trim() === "Skip for now"),
   )
   button(view.host, "Skip for now").click()
-  await until(() => heading(view.host) === "Connect your own models")
-  expect(view.host.textContent).toContain("You will need a model before your first message")
+  await until(() => heading(view.host) === "Connect your models")
+  expect(view.host.textContent).toContain("No model connected yet")
   button(view.host, "Back").click()
   await until(() => heading(view.host) === "Turn on Ace")
   expect(app.state.step).toBe("ace")
@@ -293,7 +293,7 @@ test("skipping Ace warns that a model is still needed, and Back returns to Ace",
 test("connections: a saved provider key clears the warning, a rejected key shows the provider's reason", async () => {
   const app = fixture({ connected: true, step: "connect" })
   const view = app.mount()
-  await until(() => heading(view.host) === "Connect your own models")
+  await until(() => heading(view.host) === "Connect your models")
   const rows = Array.from(view.host.querySelectorAll("li"))
   const anthropic = rows.find((row) => row.textContent?.includes("Anthropic"))!
   anthropic.querySelector("button")!.click()
@@ -306,14 +306,14 @@ test("connections: a saved provider key clears the warning, a rejected key shows
   button(anthropic, "Save").click()
   await until(() => anthropic.textContent?.includes("Key saved") === true)
   expect(app.state.keys).toEqual(["anthropic"])
-  expect(view.host.textContent).not.toContain("You will need a model before your first message")
+  expect(view.host.textContent).not.toContain("No model connected yet")
   expect(view.host.querySelector('[role="alert"]')).toBeNull()
 })
 
 test("connections: ChatGPT connects through the OAuth routes, Modal detection reports its error inline", async () => {
   const app = fixture({ connected: true, step: "connect" })
   const view = app.mount()
-  await until(() => heading(view.host) === "Connect your own models")
+  await until(() => heading(view.host) === "Connect your models")
   button(view.host, "Connect").click()
   await until(() => view.host.textContent?.includes("Signed in") === true)
   expect(app.opened).toEqual(["https://auth.example/codex"])
@@ -326,7 +326,7 @@ test("connections: ChatGPT connects through the OAuth routes, Modal detection re
 test("finishing records the setup revision and reveals the workspace", async () => {
   const app = fixture({ connected: true, step: "connect", ace: true })
   const view = app.mount()
-  await until(() => heading(view.host) === "Connect your own models")
+  await until(() => heading(view.host) === "Connect your models")
   // A resumed setup reads the wallet before it claims anything about Ace.
   await until(() => view.host.textContent?.includes("used alongside Ace") === true)
   button(view.host, "Continue").click()
@@ -347,7 +347,7 @@ test("finishing records the setup revision and reveals the workspace", async () 
 test("a signed-in install resumes at the stored step; the account step is never shown again", async () => {
   const app = fixture({ connected: true, step: "connect" })
   const view = app.mount()
-  await until(() => heading(view.host) === "Connect your own models")
+  await until(() => heading(view.host) === "Connect your models")
   expect(view.host.textContent).not.toContain("Welcome to OpenScience")
 
   const stale = fixture({ connected: false, step: "connect" })

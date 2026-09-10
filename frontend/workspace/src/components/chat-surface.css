@@ -104,7 +104,7 @@
 }
 
 .session-scroller [data-component="user-message"] {
-  --user-message-surface: var(--surface-weak);
+  --user-message-surface: var(--color-surface-weak);
   --user-message-radius: var(--radius-sm);
 }
 
@@ -186,7 +186,7 @@
    Keep a modest title/section/subsection hierarchy for long research answers. */
 .session-scroller [data-slot="assistant-prose"] :is(h1, h2, h3, h4, h5, h6) {
   margin-block: 24px 8px;
-  color: var(--text-strong);
+  color: var(--color-text);
   font-size: 1em;
   font-weight: var(--font-weight-emphasis);
   line-height: 1.4;
@@ -238,7 +238,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-base) transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .session-scroller [data-slot="assistant-prose"] :is(pre, .katex-display)::-webkit-scrollbar {
@@ -247,7 +247,7 @@
 }
 
 .session-scroller [data-slot="assistant-prose"] :is(pre, .katex-display)::-webkit-scrollbar-thumb {
-  background: var(--border-base);
+  background: var(--color-border);
   border-radius: var(--radius-xs);
 }
 
@@ -281,7 +281,7 @@
   height: 0;
   margin-block: 24px;
   border: 0;
-  border-top: 1px solid var(--border-weak-base);
+  border-top: 1px solid var(--color-border-weak);
 }
 
 .session-scroller [data-slot="assistant-prose"] > :first-child {
@@ -309,7 +309,7 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-base) transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .session-scroller [data-slot="assistant-prose"] [data-component="markdown-table"]:focus-visible {
@@ -341,7 +341,7 @@
 
 .session-scroller [data-slot="assistant-prose"] th {
   background: color-mix(in srgb, var(--color-bg-subtle) 76%, transparent);
-  color: var(--color-text-muted, var(--text-weak));
+  color: var(--color-text-muted);
   font-weight: var(--font-weight-emphasis);
 }
 
@@ -350,16 +350,17 @@
 }
 
 .session-scroller [data-slot="session-turn-collapsible-trigger-content"] {
-  color: var(--color-text-muted, var(--text-weak));
-  font-size: var(--font-size-small);
+  color: var(--color-text-muted);
+  font-size: var(--chat-operation-font-size);
   font-weight: var(--font-weight-regular);
+  line-height: var(--chat-operation-line-height);
 }
 
 .session-scroller [data-slot="session-turn-collapsible-content-inner"] {
   gap: 5px;
   margin-left: 4px;
   padding: 0 0 0 10px;
-  border-left-color: var(--border-weak-base);
+  border-left-color: var(--color-border-weak);
 }
 
 .session-scroller [data-slot="session-turn-status-text"] {
@@ -373,14 +374,14 @@
 }
 
 /* The shared turn header gives every descendant paragraph an extra-loose
-   180% leading. Reasoning/text parts live inside that header, so explicitly
-   restore the same 14/21 reading rhythm as the final assistant response. */
+   180% leading. A thought is part of the trace, so its text sits at the
+   operation level with the rows around it, not at answer size. */
 .session-scroller [data-component="reasoning-part"] [data-component="markdown"],
 .session-scroller [data-component="reasoning-part"] [data-component="markdown"] :is(p, li, blockquote) {
   font-family: var(--font-family-sans);
-  font-size: var(--chat-prose-font-size);
+  font-size: var(--chat-operation-font-size);
   font-weight: var(--font-weight-regular);
-  line-height: var(--chat-prose-line-height);
+  line-height: var(--chat-operation-line-height);
 }
 
 .session-scroller [data-component="collapsible"] {
@@ -389,8 +390,49 @@
 }
 
 .session-scroller [data-component="collapsible"] > [data-slot="collapsible-trigger"] {
-  height: 32px;
-  padding: 4px 6px;
+  height: 28px;
+  padding: 4px 8px 4px 0;
+}
+
+/* Disclosure chevrons on tool rows appear on hover, like every other row. */
+.session-scroller [data-component="tool-trigger"] > [data-slot="collapsible-arrow"] {
+  opacity: 0;
+  transition: opacity 150ms var(--ease-standard);
+}
+
+.session-scroller
+  [data-slot="collapsible-trigger"]:hover
+  [data-component="tool-trigger"]
+  > [data-slot="collapsible-arrow"],
+.session-scroller
+  [data-slot="collapsible-trigger"]:focus-visible
+  [data-component="tool-trigger"]
+  > [data-slot="collapsible-arrow"],
+.session-scroller
+  [data-slot="collapsible-trigger"][aria-expanded="true"]
+  [data-component="tool-trigger"]
+  > [data-slot="collapsible-arrow"] {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .session-scroller [data-component="tool-trigger"] > [data-slot="collapsible-arrow"] {
+    opacity: 1;
+  }
+}
+
+/* A finished call reads text-first like the thought and burst rows around it;
+   the glyph returns only while it runs, waits, fails, or is cancelled. */
+.session-scroller
+  [data-component="tool-trigger"]:not(
+    [data-outcome="running"],
+    [data-outcome="pending"],
+    [data-outcome="error"],
+    [data-outcome="cancelled"]
+  )
+  > [data-slot="basic-tool-tool-trigger-content"]
+  > [data-slot="basic-tool-tool-status"] {
+  display: none;
 }
 
 .session-scroller [data-component="tool-trigger"],
@@ -398,12 +440,15 @@
   gap: 7px;
 }
 
-.session-scroller [data-slot="basic-tool-tool-title"] {
+/* A tool row reads like every other trace row: the verb and its object at
+   the operation level in regular weight, with only arguments as metadata. */
+.session-scroller [data-slot="basic-tool-tool-title"],
+.session-scroller [data-slot="basic-tool-tool-subtitle"] {
   font-size: var(--chat-operation-font-size);
+  font-weight: var(--font-weight-regular);
   line-height: var(--chat-operation-line-height);
 }
 
-.session-scroller [data-slot="basic-tool-tool-subtitle"],
 .session-scroller [data-slot="basic-tool-tool-arg"] {
   font-size: var(--chat-meta-font-size);
   line-height: var(--chat-meta-line-height);
@@ -481,7 +526,7 @@
 }
 
 .session-scroller [data-slot="session-turn-generated"] > header {
-  color: var(--color-text-muted, var(--text-weak));
+  color: var(--color-text-muted);
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-regular);
   letter-spacing: normal;

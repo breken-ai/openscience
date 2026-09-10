@@ -32,7 +32,7 @@ import { useData } from "../context"
 import { useDiffComponent } from "../context/diff"
 import { useCodeComponent } from "../context/code"
 import { useDialog } from "../context/dialog"
-import { useI18n } from "../context/i18n"
+import { type UiI18nKey, useI18n } from "../context/i18n"
 import { ComputeJobDetails } from "./compute-job-details"
 import { BasicTool } from "./basic-tool"
 import { ResearchSearchTool } from "./research-search-tool"
@@ -57,6 +57,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import {
   reasoningDisplayText,
   privateReasoningOnly,
+  runningLabel,
   savedArtifact,
   scienceTaskLabel,
   sentenceCaseLabel,
@@ -197,6 +198,14 @@ export type ToolInfo = {
   icon: IconProps["name"]
   title: string
   subtitle?: string
+}
+
+/** A row reads as what happened: "Ran", "Read", "Searched". While the call is
+ * still in flight it reads as what is happening. */
+function toolVerb(i18n: ReturnType<typeof useI18n>, tool: string, status: string | undefined, done: UiI18nKey) {
+  const live = status === "running" || status === "pending"
+  const key = live ? runningLabel(tool) : undefined
+  return i18n.t(key ?? done)
 }
 
 export function getToolInfo(tool: string, input: any = {}): ToolInfo {
@@ -1027,7 +1036,7 @@ ToolRegistry.register({
           {...props}
           icon="glasses"
           trigger={{
-            title: i18n.t("ui.tool.read"),
+            title: toolVerb(i18n, "read", props.status, "ui.tool.read"),
             subtitle: props.input.filePath ? getFilename(props.input.filePath) : "",
             args,
           }}
@@ -1114,7 +1123,10 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         icon="bullet-list"
-        trigger={{ title: i18n.t("ui.tool.list"), subtitle: getDirectory(props.input.path || "/") }}
+        trigger={{
+          title: toolVerb(i18n, "list", props.status, "ui.tool.list"),
+          subtitle: getDirectory(props.input.path || "/"),
+        }}
       >
         <Show when={props.output}>
           {(output) => (
@@ -1137,7 +1149,7 @@ ToolRegistry.register({
         {...props}
         icon="magnifying-glass-menu"
         trigger={{
-          title: i18n.t("ui.tool.glob"),
+          title: toolVerb(i18n, "glob", props.status, "ui.tool.glob"),
           subtitle: getDirectory(props.input.path || "/"),
           args: props.input.pattern ? ["pattern=" + props.input.pattern] : [],
         }}
@@ -1166,7 +1178,7 @@ ToolRegistry.register({
         {...props}
         icon="magnifying-glass-menu"
         trigger={{
-          title: i18n.t("ui.tool.grep"),
+          title: toolVerb(i18n, "grep", props.status, "ui.tool.grep"),
           subtitle: getDirectory(props.input.path || "/"),
           args,
         }}
@@ -1210,7 +1222,7 @@ ToolRegistry.register({
         {...props}
         icon="window-cursor"
         trigger={{
-          title: downloaded() ? "Downloaded file" : i18n.t("ui.tool.webfetch"),
+          title: downloaded() ? "Downloaded file" : toolVerb(i18n, "webfetch", props.status, "ui.tool.webfetch"),
           subtitle: typeof downloaded()?.path === "string" ? (downloaded()!.path as string) : props.input.url || "",
           args: props.input.format ? ["format=" + props.input.format] : [],
           action: (
@@ -1467,21 +1479,6 @@ ToolRegistry.register({
       )
     }
 
-    const familyIcon = (family: string) =>
-      family === "context"
-        ? "glasses"
-        : family === "sources"
-          ? "window-cursor"
-          : family === "commands"
-            ? "console"
-            : family === "changes"
-              ? "code-lines"
-              : family === "images"
-                ? "photo"
-                : family === "skills"
-                  ? "sparkles"
-                  : "activity"
-
     const [operations, setOperations] = createSignal(false)
 
     return (
@@ -1507,17 +1504,21 @@ ToolRegistry.register({
                 <Spinner />
               </Show>
             </span>
+            {/* What the worker is doing leads; who is doing it sits at the
+                right in the quiet colour, and the state reads on its own line. */}
             <span data-slot="delegation-heading">
-              <strong>{agentLabel()}</strong>
-              <Show when={props.input.description}>
-                <span data-slot="delegation-description">{String(props.input.description)}</span>
-              </Show>
+              <span data-slot="delegation-title">{String(props.input.description || agentLabel())}</span>
+              <span data-slot="delegation-subline">
+                <span data-slot="delegation-status">{statusLabel()}</span>
+                <Show when={duration()}>{(value) => <span>{value()}</span>}</Show>
+                <Show when={props.metadata.toolCalls !== undefined}>
+                  <span>{pluralize(Number(props.metadata.toolCalls), "op")}</span>
+                </Show>
+              </span>
             </span>
             <span data-slot="delegation-summary-meta">
-              <span data-slot="delegation-status">{statusLabel()}</span>
-              <Show when={duration()}>{(value) => <span>{value()}</span>}</Show>
-              <Show when={props.metadata.toolCalls !== undefined}>
-                <span>{pluralize(Number(props.metadata.toolCalls), "op")}</span>
+              <Show when={props.input.description}>
+                <span data-slot="delegation-agent">{agentLabel()}</span>
               </Show>
               <Icon name="chevron-down" size="small" />
             </span>
@@ -1602,11 +1603,10 @@ ToolRegistry.register({
                 <For each={activity()}>
                   {(group) => (
                     <li data-slot="delegation-activity-row" data-family={group.family}>
-                      <Icon name={familyIcon(group.family)} size="small" />
                       <strong>{group.label}</strong>
                       <span>{group.detail === group.family ? "" : group.detail}</span>
                       <Show when={group.failed > 0}>
-                        <em data-slot="delegation-activity-failed">{pluralize(group.failed, "failure")}</em>
+                        <em data-slot="delegation-activity-failed">{group.failed} failed</em>
                       </Show>
                     </li>
                   )}
@@ -1641,6 +1641,8 @@ ToolRegistry.register({
                 </For>
               </div>
             </Show>
+            {/* One quiet line of provenance and two things that look like what
+                they are: buttons. Failures already read in the activity rows. */}
             <div data-slot="delegation-footer">
               <span data-slot="delegation-metrics" aria-label="Delegated research details">
                 <Show when={model()}>{(value) => <span>{value()}</span>}</Show>
@@ -1654,29 +1656,30 @@ ToolRegistry.register({
                     </span>
                   )}
                 </Show>
-                <Show when={props.metadata.effort}>
-                  <span>{sentenceCaseLabel(String(props.metadata.effort))} effort</span>
-                </Show>
-                <Show when={Number(props.metadata.failedToolCalls) > 0}>
-                  <span data-failed>{pluralize(Number(props.metadata.failedToolCalls), "failed call")}</span>
-                </Show>
               </span>
               <span data-slot="delegation-actions">
                 <Show when={summary().length > 0}>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="small"
                     data-slot="delegation-link"
                     aria-expanded={operations()}
                     onClick={() => setOperations(!operations())}
                   >
-                    {operations() ? "Hide operations" : `${pluralize(summary().length, "operation")}`}
-                  </button>
+                    {operations() ? "Hide operations" : pluralize(summary().length, "operation")}
+                  </Button>
                 </Show>
                 <Show when={childSessionId() && data.navigateToSession}>
-                  <button type="button" data-slot="delegation-link" data-primary onClick={openAgent}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="small"
+                    data-slot="delegation-link"
+                    onClick={openAgent}
+                  >
                     Open agent
-                    <Icon name="arrow-right" size="small" />
-                  </button>
+                  </Button>
                 </Show>
               </span>
             </div>
@@ -1721,7 +1724,7 @@ ToolRegistry.register({
         {...props}
         icon="console"
         trigger={{
-          title: i18n.t("ui.tool.shell"),
+          title: toolVerb(i18n, "bash", props.status, "ui.tool.shell"),
           subtitle: subtitle(),
         }}
       >
@@ -1924,7 +1927,7 @@ ToolRegistry.register({
           {...props}
           icon="code-lines"
           trigger={{
-            title: i18n.t("ui.tool.patch"),
+            title: toolVerb(i18n, "apply_patch", props.status, "ui.tool.patch"),
             subtitle: subtitle(),
           }}
         >
@@ -2259,6 +2262,15 @@ export function QuestionPrompt(props: { request: QuestionRequest }) {
   })
 
   const question = createMemo(() => questions()[store.tab])
+  // A question that asks for a login or token is a credential request: point
+  // at the encrypted store instead of letting a secret land in the chat.
+  const credential = createMemo(
+    () =>
+      !!data.openCredentials &&
+      /\b(credentials?|tokens?|api\s*keys?|log\s*in|login|sign\s*in|gh auth|hf auth|hugging\s*face|github)\b/i.test(
+        `${question()?.header ?? ""} ${question()?.question ?? ""}`,
+      ),
+  )
   const confirm = createMemo(() => !single() && store.tab === questions().length)
   const options = createMemo(() => question()?.options ?? [])
   const input = createMemo(() => store.custom[store.tab] ?? "")
@@ -2385,6 +2397,14 @@ export function QuestionPrompt(props: { request: QuestionRequest }) {
             {question()?.question}
             {multi() ? " " + i18n.t("ui.question.multiHint") : ""}
           </div>
+          <Show when={credential()}>
+            <div data-slot="question-credential">
+              <span>{i18n.t("ui.question.credentialHint")}</span>
+              <button type="button" onClick={() => data.openCredentials?.()}>
+                {i18n.t("ui.question.openCredentials")}
+              </button>
+            </div>
+          </Show>
           <div data-slot="question-options">
             <For each={options()}>
               {(opt, i) => {
