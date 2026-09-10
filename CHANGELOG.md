@@ -8,6 +8,10 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ## Unreleased
 
+### Fixed
+
+- Stopping a turn now cancels the MCP tool call that is still running: OpenScience sends the protocol cancellation to the server instead of abandoning the request, ignores a reply that arrives afterwards, and releases the update lease the call was holding.
+
 ## v2.0.88 — 2026-09-10
 
 ### Added
