@@ -1,4 +1,4 @@
-import { dynamicTool, type Tool, jsonSchema, type JSONSchema7 } from "ai"
+import { dynamicTool, type Tool, type ToolCallOptions, jsonSchema, type JSONSchema7 } from "ai"
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -425,6 +425,17 @@ export namespace MCP {
     })
   }
 
+  /** A stopped call is a cancellation, not a tool failure. Callers read that
+   * from the error name and the tool card reads it from the wording, so both
+   * have to hold however the turn was aborted: a disposal symbol and a
+   * credential interruption reach here as readily as a plain AbortError. */
+  function abortError(signal: AbortSignal) {
+    const reason = signal.reason
+    if (reason instanceof Error && reason.name === "AbortError" && /\baborted\b/i.test(reason.message)) return reason
+    const detail = reason === undefined ? "" : `: ${String(reason)}`
+    return new DOMException(`The MCP tool call was aborted${detail}`, "AbortError")
+  }
+
   async function convertMcpTool(
     clientName: string,
     mcpTool: MCPToolDef,
@@ -445,7 +456,7 @@ export namespace MCP {
     return dynamicTool({
       description: mcpTool.description ?? "",
       inputSchema: inputSchema(mcpTool.name, schema),
-      execute: async (args: unknown) => {
+      execute: async (args: unknown, options: ToolCallOptions) => {
         return withUpdateAdmission(async () => {
           if (projectOwned) await ProjectTrust.require(Instance.project, "project_mcp")
           const current = await state()
@@ -459,17 +470,40 @@ export namespace MCP {
           ) {
             throw new Error(`MCP connector ${clientName} is no longer authorized for this tool call`)
           }
-          return client.callTool(
-            {
-              name: mcpTool.name,
-              arguments: (args || {}) as Record<string, unknown>,
-            },
-            CallToolResultSchema,
-            {
-              resetTimeoutOnProgress: true,
-              timeout,
-            },
-          )
+          const signal = options.abortSignal
+          if (signal?.aborted) throw abortError(signal)
+
+          // The MCP SDK sends signal.reason to the peer in
+          // notifications/cancelled. Relay through a neutral signal so a
+          // credential or disposal reason cannot cross that trust boundary.
+          const cancellation = new AbortController()
+          const abort = () => cancellation.abort("MCP tool call cancelled")
+          signal?.addEventListener("abort", abort, { once: true })
+          try {
+            return await client.callTool(
+              {
+                name: mcpTool.name,
+                arguments: (args || {}) as Record<string, unknown>,
+              },
+              CallToolResultSchema,
+              {
+                resetTimeoutOnProgress: true,
+                timeout,
+                // Stop has to reach the peer: the signal makes the SDK send
+                // notifications/cancelled, drop a late reply, and settle this
+                // promise so the update-admission lease is released.
+                signal: signal ? cancellation.signal : undefined,
+              },
+            )
+          } catch (error) {
+            // The SDK rejects a cancelled request as a RequestTimeout McpError.
+            // Stop is not a timeout, and callers recognise cancellation by the
+            // AbortError name, so report what actually happened.
+            if (!signal?.aborted) throw error
+            throw abortError(signal)
+          } finally {
+            signal?.removeEventListener("abort", abort)
+          }
         })
       },
     })

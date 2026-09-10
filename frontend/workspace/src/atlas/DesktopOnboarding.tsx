@@ -13,7 +13,6 @@ import {
 import { createStore } from "solid-js/store"
 import { Button } from "@synsci/ui/button"
 import { TextField } from "@synsci/ui/text-field"
-import { IconCheckCircle, IconChevronDown, IconChevronLeft } from "@/atlas/shared/Icon"
 import { ProviderIcon } from "@synsci/ui/provider-icon"
 import { Wordmark } from "@/atlas/Wordmark"
 import { ProviderLogo } from "@/components/settings/ProviderLogo"
@@ -52,54 +51,18 @@ type Connection = {
   id: string
   logo: string
   name: string
-  detail: string
   kind: "oauth" | "key" | "credential" | "detect"
   placeholder?: string
 }
 
 const CONNECTIONS: Connection[] = [
-  {
-    id: "openai-codex",
-    logo: "openai-codex",
-    name: "ChatGPT / Codex",
-    detail: "Use your ChatGPT subscription",
-    kind: "oauth",
-  },
-  { id: "anthropic", logo: "anthropic", name: "Anthropic", detail: "API key", kind: "key", placeholder: "sk-ant-…" },
-  { id: "openai", logo: "openai", name: "OpenAI", detail: "API key", kind: "key", placeholder: "sk-…" },
-  {
-    id: "openrouter",
-    logo: "openrouter",
-    name: "OpenRouter",
-    detail: "API key · one key for many models",
-    kind: "key",
-    placeholder: "sk-or-…",
-  },
-  {
-    id: "firecrawl",
-    logo: "firecrawl",
-    name: "Firecrawl",
-    detail: "API key · your own literature and web search",
-    kind: "credential",
-    placeholder: "fc-…",
-  },
-  {
-    id: "modal",
-    logo: "modal",
-    name: "Modal",
-    detail: "Remote compute · detected from your Modal CLI profile",
-    kind: "detect",
-  },
+  { id: "openai-codex", logo: "openai-codex", name: "ChatGPT / Codex", kind: "oauth" },
+  { id: "anthropic", logo: "anthropic", name: "Anthropic", kind: "key", placeholder: "sk-ant-…" },
+  { id: "openai", logo: "openai", name: "OpenAI", kind: "key", placeholder: "sk-…" },
+  { id: "openrouter", logo: "openrouter", name: "OpenRouter", kind: "key", placeholder: "sk-or-…" },
+  { id: "firecrawl", logo: "firecrawl", name: "Firecrawl", kind: "credential", placeholder: "fc-…" },
+  { id: "modal", logo: "modal", name: "Modal", kind: "detect" },
 ]
-
-const ACE_BENEFITS = [
-  { title: "Managed models", detail: "Frontier models with no keys to manage." },
-  { title: "Literature search", detail: "High-quality search and full text through Firecrawl." },
-  { title: "Schematics and images", detail: "Scientific figures and image generation." },
-  { title: "Team wallet", detail: "One workspace balance, pay as you go." },
-]
-
-const INTRO_FACTS = ["Any model", "Files stay local", "Open source"]
 
 const VERSION_KEY = "openscience.desktop_onboarding_version"
 /** How long the window waits for the browser sign-in to finish before it lets
@@ -458,349 +421,278 @@ export function DesktopOnboardingController(
         when={complete()}
         fallback={
           <main class="desktop-onboarding" aria-labelledby="desktop-onboarding-title" aria-busy={Boolean(connect.busy)}>
-            {/* The intro card carries the brand mark itself; keep the slot so the card does not jump between steps. */}
-            <div class="desktop-onboarding__brand" data-hidden={step() === "account" ? "true" : undefined}>
-              <Wordmark size="md" />
-            </div>
             <section class="desktop-onboarding__card" data-step={step()}>
-              <ol class="desktop-onboarding__dots" aria-label={`Step ${STEPS.indexOf(step()) + 1} of ${STEPS.length}`}>
-                <For each={STEPS}>
-                  {(item) => (
-                    <li
-                      data-state={
-                        item === step() ? "current" : STEPS.indexOf(item) < STEPS.indexOf(step()) ? "done" : "upcoming"
-                      }
-                      aria-current={item === step() ? "step" : undefined}
-                    />
-                  )}
-                </For>
-              </ol>
+              <header class="desktop-onboarding__top">
+                <ProviderIcon id="synsci" class="desktop-onboarding__logo" aria-hidden="true" />
+                <span
+                  class="desktop-onboarding__count"
+                  aria-label={`Step ${STEPS.indexOf(step()) + 1} of ${STEPS.length}`}
+                >
+                  {STEPS.indexOf(step()) + 1} / {STEPS.length}
+                </span>
+              </header>
 
               <Switch>
                 <Match when={step() === "account"}>
-                  <div class="desktop-onboarding__panel desktop-onboarding__panel--intro">
-                    <span class="desktop-onboarding__mark" aria-hidden="true">
-                      <ProviderIcon id="synsci" />
-                    </span>
-                    <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
-                      Welcome to OpenScience
-                    </h1>
-                    <p class="desktop-onboarding__tagline">The open research agent for ML engineering and science.</p>
-                    <ul class="desktop-onboarding__facts" aria-label="About OpenScience">
-                      <For each={INTRO_FACTS}>{(fact) => <li>{fact}</li>}</For>
-                    </ul>
-                    <p class="desktop-onboarding__lead">
-                      Create your account or sign in to continue. Your workspace supplies model access, shared
-                      credentials, and the team wallet.
-                    </p>
-                    <div class="desktop-onboarding__actions">
-                      <Show
-                        when={account.keyEntry}
-                        fallback={
-                          <>
-                            <Button
-                              variant="primary"
-                              size="large"
-                              disabled={account.pending}
-                              onClick={() => void login()}
-                            >
-                              {account.pending ? "Waiting for sign-in…" : "Continue with Synthetic Sciences"}
-                            </Button>
-                            <p class="desktop-onboarding__status" role="status" aria-live="polite">
-                              {account.pending
-                                ? "Choose your workspace in your browser. This window continues automatically."
-                                : "Opens Synthetic Sciences in your browser to sign up or sign in."}
-                            </p>
-                            <button
-                              type="button"
-                              class="desktop-onboarding__link"
-                              disabled={account.pending}
-                              onClick={() => setAccount("keyEntry", true)}
-                            >
-                              Use a sign-in key instead
-                            </button>
-                          </>
-                        }
-                      >
-                        <div class="desktop-onboarding__inline">
-                          <label class="desktop-onboarding__field">
-                            <span>Sign-in key</span>
-                            <TextField
-                              hideLabel
-                              type="password"
-                              value={account.key}
-                              disabled={account.pending}
-                              onChange={(value: string) => setAccount("key", value)}
-                              placeholder="Paste the key from app.syntheticsciences.ai"
-                              autocomplete="off"
-                              onKeyDown={(event: KeyboardEvent) => {
-                                if (event.key !== "Enter") return
-                                event.preventDefault()
-                                void loginWithKey()
-                              }}
-                            />
-                          </label>
+                  <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
+                    Welcome to OpenScience
+                  </h1>
+                  <p class="desktop-onboarding__body">Sign in or create an account to continue.</p>
+                  <div class="desktop-onboarding__actions">
+                    <Show
+                      when={account.keyEntry}
+                      fallback={
+                        <>
                           <Button
                             variant="primary"
-                            disabled={account.pending || !account.key.trim()}
-                            onClick={() => void loginWithKey()}
+                            size="large"
+                            disabled={account.pending}
+                            onClick={() => void login()}
                           >
-                            {account.pending ? "Signing in…" : "Sign in"}
+                            {account.pending ? "Waiting for your browser…" : "Continue with Synthetic Sciences"}
                           </Button>
-                        </div>
-                        <button
-                          type="button"
-                          class="desktop-onboarding__link"
+                          <Show when={account.pending}>
+                            <p class="desktop-onboarding__note" role="status" aria-live="polite">
+                              Finish signing in in your browser. This window continues on its own.
+                            </p>
+                          </Show>
+                          <button
+                            type="button"
+                            class="desktop-onboarding__link"
+                            disabled={account.pending}
+                            onClick={() => setAccount("keyEntry", true)}
+                          >
+                            Use a sign-in key
+                          </button>
+                        </>
+                      }
+                    >
+                      <div class="desktop-onboarding__inline">
+                        <TextField
+                          hideLabel
+                          label="Sign-in key"
+                          type="password"
+                          value={account.key}
                           disabled={account.pending}
-                          onClick={() => setAccount({ keyEntry: false, key: "" })}
+                          onChange={(value: string) => setAccount("key", value)}
+                          placeholder="Sign-in key"
+                          autocomplete="off"
+                          onKeyDown={(event: KeyboardEvent) => {
+                            if (event.key !== "Enter") return
+                            event.preventDefault()
+                            void loginWithKey()
+                          }}
+                        />
+                        <Button
+                          variant="primary"
+                          disabled={account.pending || !account.key.trim()}
+                          onClick={() => void loginWithKey()}
                         >
-                          Back to browser sign-in
-                        </button>
-                      </Show>
-                      {errorNote()}
-                    </div>
+                          {account.pending ? "Signing in…" : "Sign in"}
+                        </Button>
+                      </div>
+                      <button
+                        type="button"
+                        class="desktop-onboarding__link"
+                        disabled={account.pending}
+                        onClick={() => setAccount({ keyEntry: false, key: "" })}
+                      >
+                        Back to browser sign-in
+                      </button>
+                    </Show>
+                    {errorNote()}
                   </div>
                 </Match>
 
                 <Match when={step() === "ace"}>
-                  <div class="desktop-onboarding__panel desktop-onboarding__panel--wide">
-                    <p class="desktop-onboarding__eyebrow">Ace · managed by Synthetic Sciences</p>
-                    <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
-                      Turn on Ace
-                    </h1>
-                    <p class="desktop-onboarding__lead">
-                      Managed models and research tools, pay as you go. $0 to activate, provider price plus a 5.5%
-                      funding fee, no subscription.
-                    </p>
-                    <ul class="desktop-onboarding__benefits">
-                      <For each={ACE_BENEFITS}>
-                        {(benefit) => (
-                          <li>
-                            <strong>{benefit.title}</strong>
-                            <span>{benefit.detail}</span>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                    <div class="desktop-onboarding__actions">
-                      <Switch>
-                        <Match when={ace.status === "on"}>
-                          <p class="desktop-onboarding__done" role="status" aria-live="polite">
-                            <IconCheckCircle size={14} strokeWidth={1.5} aria-hidden="true" />
-                            Ace is on{money(ace.balance) ? ` · ${money(ace.balance)} available` : ""}
+                  <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
+                    Turn on Ace
+                  </h1>
+                  <p class="desktop-onboarding__body">
+                    Managed models, literature search through Firecrawl, schematics and image generation, and one team
+                    wallet. Pay as you go, $0 to start.
+                  </p>
+                  <div class="desktop-onboarding__actions">
+                    <Switch>
+                      <Match when={ace.status === "on"}>
+                        <p class="desktop-onboarding__done" role="status" aria-live="polite">
+                          Ace is on{money(ace.balance) ? ` · ${money(ace.balance)} available` : ""}
+                        </p>
+                        <Button variant="primary" size="large" onClick={() => remember("connect")}>
+                          Continue
+                        </Button>
+                      </Match>
+                      <Match when={ace.status === "waiting" || ace.status === "checking"}>
+                        <Button variant="primary" size="large" disabled>
+                          {ace.status === "checking" ? "Checking…" : "Waiting for Ace…"}
+                        </Button>
+                        <p class="desktop-onboarding__note" role="status" aria-live="polite">
+                          {ace.status === "checking" ? "Reading your wallet." : "Finish in your browser."}
+                        </p>
+                        <button type="button" class="desktop-onboarding__link" onClick={() => void checkAce()}>
+                          Check again
+                        </button>
+                      </Match>
+                      <Match when={true}>
+                        <Button variant="primary" size="large" onClick={turnOnAce}>
+                          Turn on Ace
+                        </Button>
+                        <Show when={ace.note}>
+                          <p class="desktop-onboarding__note" role="status" aria-live="polite">
+                            {ace.note}
                           </p>
-                          <Button variant="primary" size="large" onClick={() => remember("connect")}>
-                            Continue
-                          </Button>
-                        </Match>
-                        <Match when={ace.status === "waiting" || ace.status === "checking"}>
-                          <Button variant="primary" size="large" disabled>
-                            {ace.status === "checking" ? "Checking…" : "Waiting for Ace…"}
-                          </Button>
-                          <p class="desktop-onboarding__status" role="status" aria-live="polite">
-                            {ace.status === "checking"
-                              ? "Reading your wallet."
-                              : "Finish in your browser. This window continues automatically."}
-                          </p>
-                          <button type="button" class="desktop-onboarding__link" onClick={() => void checkAce()}>
-                            I've done this, check again
-                          </button>
-                        </Match>
-                        <Match when={true}>
-                          <span class="desktop-onboarding__recommended">
-                            <Button variant="primary" size="large" onClick={turnOnAce}>
-                              Turn on Ace
-                            </Button>
-                            <small aria-label="Recommended">Recommended</small>
-                          </span>
-                          <p class="desktop-onboarding__status" role="status" aria-live="polite">
-                            {ace.note ?? "Opens your billing page in the browser."}
-                          </p>
-                          <button type="button" class="desktop-onboarding__link" onClick={() => remember("connect")}>
-                            Skip for now
-                          </button>
-                        </Match>
-                      </Switch>
-                      {errorNote()}
-                    </div>
+                        </Show>
+                        <button type="button" class="desktop-onboarding__link" onClick={() => remember("connect")}>
+                          Skip for now
+                        </button>
+                      </Match>
+                    </Switch>
+                    {errorNote()}
                   </div>
                 </Match>
 
                 <Match when={step() === "connect"}>
-                  <div class="desktop-onboarding__panel desktop-onboarding__panel--wide">
-                    <p class="desktop-onboarding__eyebrow">Your connections</p>
-                    <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
-                      Connect your own models
-                    </h1>
-                    <p class="desktop-onboarding__lead">
-                      {ace.status === "on"
-                        ? "Optional. Anything you connect here is used alongside Ace."
-                        : "Bring a ChatGPT subscription or provider keys. Everything here is optional."}
-                    </p>
-                    <ul class="desktop-onboarding__connections" aria-label="Connections">
-                      <For each={CONNECTIONS}>
-                        {(item) => {
-                          const open = () => connect.open === item.id
-                          const done = () => connect.connected[item.id]
-                          const busy = () => connect.busy === item.id
-                          const expandable = () => item.kind === "key" || item.kind === "credential"
-                          return (
-                            <li data-open={open() ? "true" : undefined} data-connected={done() ? "true" : undefined}>
-                              <div class="desktop-onboarding__connection">
-                                <ProviderLogo id={item.logo} label={item.name} />
-                                <span class="desktop-onboarding__connection-copy">
-                                  <strong>{item.name}</strong>
-                                  <small>{done() ?? item.detail}</small>
-                                </span>
+                  <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
+                    Connect your models
+                  </h1>
+                  <p class="desktop-onboarding__body">
+                    {ace.status === "on"
+                      ? "Optional. Anything you add is used alongside Ace."
+                      : "Optional. Keys stay on this device."}
+                  </p>
+                  <ul class="desktop-onboarding__rows" aria-label="Connections">
+                    <For each={CONNECTIONS}>
+                      {(item) => {
+                        const open = () => connect.open === item.id
+                        const done = () => connect.connected[item.id]
+                        const busy = () => connect.busy === item.id
+                        const expandable = () => item.kind === "key" || item.kind === "credential"
+                        return (
+                          <li data-open={open() ? "true" : undefined}>
+                            <div class="desktop-onboarding__row">
+                              <ProviderLogo id={item.logo} label={item.name} size="small" />
+                              <span class="desktop-onboarding__row-name">{item.name}</span>
+                              <Show
+                                when={!done()}
+                                fallback={<span class="desktop-onboarding__row-done">{done()}</span>}
+                              >
                                 <Show
-                                  when={!done()}
+                                  when={expandable()}
                                   fallback={
-                                    <span
-                                      class="desktop-onboarding__connection-done"
-                                      aria-label={`${item.name} connected`}
-                                    >
-                                      <IconCheckCircle size={14} strokeWidth={1.5} aria-hidden="true" />
-                                    </span>
-                                  }
-                                >
-                                  <Show
-                                    when={expandable()}
-                                    fallback={
-                                      <Button
-                                        variant="secondary"
-                                        size="small"
-                                        disabled={Boolean(connect.busy)}
-                                        onClick={() => void connectItem(item)}
-                                      >
-                                        {busy()
-                                          ? item.kind === "oauth"
-                                            ? "Waiting…"
-                                            : "Checking…"
-                                          : item.kind === "oauth"
-                                            ? "Connect"
-                                            : "Detect"}
-                                      </Button>
-                                    }
-                                  >
                                     <Button
                                       variant="secondary"
                                       size="small"
                                       disabled={Boolean(connect.busy)}
-                                      aria-expanded={open()}
-                                      onClick={() => setConnect("open", open() ? undefined : item.id)}
+                                      onClick={() => void connectItem(item)}
                                     >
-                                      Add key
-                                      <IconChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
+                                      {busy() ? "Waiting…" : item.kind === "oauth" ? "Connect" : "Detect"}
                                     </Button>
-                                  </Show>
-                                </Show>
-                              </div>
-                              <Show when={open() && expandable() && !done()}>
-                                <div class="desktop-onboarding__inline">
-                                  <label class="desktop-onboarding__field">
-                                    <span>{item.name} API key</span>
-                                    <TextField
-                                      hideLabel
-                                      type="password"
-                                      value={connect.drafts[item.id] ?? ""}
-                                      disabled={Boolean(connect.busy)}
-                                      onChange={(value: string) => setConnect("drafts", item.id, value)}
-                                      placeholder={item.placeholder ?? "Paste key"}
-                                      autocomplete="off"
-                                      onKeyDown={(event: KeyboardEvent) => {
-                                        if (event.key !== "Enter") return
-                                        event.preventDefault()
-                                        void connectItem(item)
-                                      }}
-                                    />
-                                  </label>
+                                  }
+                                >
                                   <Button
-                                    variant="primary"
+                                    variant="secondary"
                                     size="small"
-                                    disabled={Boolean(connect.busy) || !(connect.drafts[item.id] ?? "").trim()}
-                                    onClick={() => void connectItem(item)}
+                                    disabled={Boolean(connect.busy)}
+                                    aria-expanded={open()}
+                                    onClick={() => setConnect("open", open() ? undefined : item.id)}
                                   >
-                                    {busy() ? "Saving…" : "Save"}
+                                    {open() ? "Cancel" : "Add key"}
                                   </Button>
-                                </div>
+                                </Show>
                               </Show>
-                            </li>
-                          )
-                        }}
-                      </For>
-                    </ul>
-                    <p class="desktop-onboarding__note">
-                      Keys are stored in an owner-only file on this device, never in project files or conversations.
-                      Local models (Ollama, LM Studio) connect later in Customize → Local models.
-                    </p>
-                    <div class="desktop-onboarding__actions">
-                      <Button
-                        variant="primary"
-                        size="large"
-                        disabled={Boolean(connect.busy)}
-                        onClick={() => remember("done")}
-                      >
-                        Continue
-                      </Button>
-                      <Show when={!modelSource()}>
-                        <p class="desktop-onboarding__status" role="status">
-                          You will need a model before your first message. Add one anytime in Customize → Models.
-                        </p>
-                      </Show>
-                      {errorNote()}
-                    </div>
+                            </div>
+                            <Show when={open() && expandable() && !done()}>
+                              <div class="desktop-onboarding__inline">
+                                <TextField
+                                  hideLabel
+                                  label={`${item.name} API key`}
+                                  type="password"
+                                  value={connect.drafts[item.id] ?? ""}
+                                  disabled={Boolean(connect.busy)}
+                                  onChange={(value: string) => setConnect("drafts", item.id, value)}
+                                  placeholder={item.placeholder ?? "API key"}
+                                  autocomplete="off"
+                                  onKeyDown={(event: KeyboardEvent) => {
+                                    if (event.key !== "Enter") return
+                                    event.preventDefault()
+                                    void connectItem(item)
+                                  }}
+                                />
+                                <Button
+                                  variant="primary"
+                                  size="small"
+                                  disabled={Boolean(connect.busy) || !(connect.drafts[item.id] ?? "").trim()}
+                                  onClick={() => void connectItem(item)}
+                                >
+                                  {busy() ? "Saving…" : "Save"}
+                                </Button>
+                              </div>
+                            </Show>
+                          </li>
+                        )
+                      }}
+                    </For>
+                  </ul>
+                  <div class="desktop-onboarding__actions">
+                    <Button
+                      variant="primary"
+                      size="large"
+                      disabled={Boolean(connect.busy)}
+                      onClick={() => remember("done")}
+                    >
+                      Continue
+                    </Button>
+                    <Show when={!modelSource()}>
+                      <p class="desktop-onboarding__note" role="status">
+                        No model connected yet. Add one later in Customize → Models.
+                      </p>
+                    </Show>
+                    {errorNote()}
                   </div>
                 </Match>
 
                 <Match when={step() === "done"}>
-                  <div class="desktop-onboarding__panel">
-                    <p class="desktop-onboarding__eyebrow desktop-onboarding__eyebrow--success">Setup complete</p>
-                    <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
-                      You're set
-                    </h1>
-                    <p class="desktop-onboarding__lead">
-                      Create your first project in the workspace and send a message.
-                    </p>
-                    <dl class="desktop-onboarding__summary">
-                      <div>
-                        <dt>Account</dt>
-                        <dd>Signed in</dd>
-                      </div>
-                      <div>
-                        <dt>Ace</dt>
-                        <dd>
-                          {ace.status === "on"
-                            ? `On${money(ace.balance) ? ` · ${money(ace.balance)}` : ""}`
-                            : "Off · turn on in Customize → Models"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Connected</dt>
-                        <dd>
-                          {connectedCount()
-                            ? CONNECTIONS.filter((item) => connect.connected[item.id])
-                                .map((item) => item.name)
-                                .join(", ")
-                            : "Nothing yet"}
-                        </dd>
-                      </div>
-                    </dl>
-                    <div class="desktop-onboarding__actions">
-                      <Button variant="primary" size="large" onClick={() => void finish()}>
-                        Open workspace
-                      </Button>
-                      {errorNote()}
+                  <h1 ref={title} id="desktop-onboarding-title" tabindex="-1">
+                    You're set
+                  </h1>
+                  <dl class="desktop-onboarding__summary">
+                    <div>
+                      <dt>Account</dt>
+                      <dd>Signed in</dd>
                     </div>
+                    <div>
+                      <dt>Ace</dt>
+                      <dd>
+                        {ace.status === "on" ? `On${money(ace.balance) ? ` · ${money(ace.balance)}` : ""}` : "Off"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Connected</dt>
+                      <dd>
+                        {connectedCount()
+                          ? CONNECTIONS.filter((item) => connect.connected[item.id])
+                              .map((item) => item.name)
+                              .join(", ")
+                          : "Nothing yet"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div class="desktop-onboarding__actions">
+                    <Button variant="primary" size="large" onClick={() => void finish()}>
+                      Open workspace
+                    </Button>
+                    {errorNote()}
                   </div>
                 </Match>
               </Switch>
 
               <Show when={back()}>
                 {(previous) => (
-                  <button type="button" class="desktop-onboarding__back" onClick={() => remember(previous())}>
-                    <IconChevronLeft size={12} strokeWidth={1.5} aria-hidden="true" />
-                    Back
-                  </button>
+                  <footer class="desktop-onboarding__foot">
+                    <button type="button" class="desktop-onboarding__link" onClick={() => remember(previous())}>
+                      Back
+                    </button>
+                  </footer>
                 )}
               </Show>
             </section>

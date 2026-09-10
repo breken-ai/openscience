@@ -206,6 +206,7 @@ import type {
   ProjectTrustUpdateResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
+  ProjectWorkingRootsResponses,
   ProvenanceExecutionsResponses,
   ProvenanceExportResponses,
   ProvenanceListResponses,
@@ -274,6 +275,8 @@ import type {
   SessionFilesystemListResponses,
   SessionFilesystemRevokeErrors,
   SessionFilesystemRevokeResponses,
+  SessionFilesystemWorkingRootErrors,
+  SessionFilesystemWorkingRootResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -350,6 +353,9 @@ import type {
   SettingsComputeSshTestResponses,
   SettingsComputeSshUpdateErrors,
   SettingsComputeSshUpdateResponses,
+  SettingsCredentialsHostResponses,
+  SettingsCredentialsImportHostErrors,
+  SettingsCredentialsImportHostResponses,
   SettingsCredentialsListResponses,
   SettingsCredentialsRemoveResponses,
   SettingsCredentialsSetResponses,
@@ -832,6 +838,53 @@ export class Credentials extends HeyApiClient {
     return (options?.client ?? this.client).get<SettingsCredentialsListResponses, unknown, ThrowOnError>({
       url: "/settings/credentials",
       ...options,
+    })
+  }
+
+  /**
+   * Credentials this machine already holds
+   *
+   * Whether GitHub (gh login) and Hugging Face (hf token) credentials exist on this computer, and where they come from. Never returns values.
+   */
+  public host<ThrowOnError extends boolean = false>(
+    parameters?: {
+      fresh?: "true" | "false"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "fresh" }] }])
+    return (options?.client ?? this.client).get<SettingsCredentialsHostResponses, unknown, ThrowOnError>({
+      url: "/settings/credentials/host",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import a credential this machine already holds
+   *
+   * Copy the machine's GitHub or Hugging Face token into OpenScience's encrypted credential store.
+   */
+  public importHost<ThrowOnError extends boolean = false>(
+    parameters: {
+      service: "github" | "huggingface"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "service" }] }])
+    return (options?.client ?? this.client).post<
+      SettingsCredentialsImportHostResponses,
+      SettingsCredentialsImportHostErrors,
+      ThrowOnError
+    >({
+      url: "/settings/credentials/host/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2496,6 +2549,25 @@ export class Project2 extends HeyApiClient {
   }
 
   /**
+   * List the project's connected read/write folders
+   *
+   * The folders a new session can use as its working directory, newest first. Empty when the project has no connected folder, in which case sessions work in scratch.
+   */
+  public workingRoots<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
+    return (options?.client ?? this.client).get<ProjectWorkingRootsResponses, unknown, ThrowOnError>({
+      url: "/project/current/working-roots",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Inspect session execution authority
    *
    * Return the trust, filesystem-grant, and sandbox revisions that would govern a session process without starting one.
@@ -3157,6 +3229,47 @@ export class Filesystem extends HeyApiClient {
   }
 
   /**
+   * Choose the session's working directory
+   *
+   * Pin relative tool paths to a connected read/write folder, to session scratch, or return to automatic (the single connected folder when there is one).
+   */
+  public workingRoot<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workingRoot: "scratch" | string | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "body", key: "workingRoot" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      SessionFilesystemWorkingRootResponses,
+      SessionFilesystemWorkingRootErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/filesystem/working-root",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Revoke filesystem access
    *
    * Revoke a filesystem grant across its whole scope and stop affected kernels so stale mounts cannot survive.
@@ -3243,6 +3356,7 @@ export class Session extends HeyApiClient {
       title?: string
       permission?: PermissionRuleset
       workspace?: "isolated" | "project"
+      workingRoot?: "scratch" | string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3257,6 +3371,7 @@ export class Session extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspace" },
+            { in: "body", key: "workingRoot" },
           ],
         },
       ],

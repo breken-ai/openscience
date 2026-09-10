@@ -1111,6 +1111,7 @@ export type Pty = {
     generation: string
     directory?: string
     workspace: string
+    scratch?: string
     readable: Array<string>
     writable: Array<string>
     sandbox: {
@@ -3285,6 +3286,77 @@ export type SettingsCredentialsListResponses = {
 
 export type SettingsCredentialsListResponse = SettingsCredentialsListResponses[keyof SettingsCredentialsListResponses]
 
+export type SettingsCredentialsHostData = {
+  body?: never
+  path?: never
+  query?: {
+    fresh?: "true" | "false"
+  }
+  url: "/settings/credentials/host"
+}
+
+export type SettingsCredentialsHostResponses = {
+  /**
+   * Host credential status
+   */
+  200: Array<{
+    service: "github" | "huggingface"
+    available: boolean
+    source?: "environment" | "gh" | "huggingface-cli" | "token-file"
+  }>
+}
+
+export type SettingsCredentialsHostResponse = SettingsCredentialsHostResponses[keyof SettingsCredentialsHostResponses]
+
+export type SettingsCredentialsImportHostData = {
+  body?: {
+    service: "github" | "huggingface"
+  }
+  path?: never
+  query?: never
+  url: "/settings/credentials/host/import"
+}
+
+export type SettingsCredentialsImportHostErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SettingsCredentialsImportHostError =
+  SettingsCredentialsImportHostErrors[keyof SettingsCredentialsImportHostErrors]
+
+export type SettingsCredentialsImportHostResponses = {
+  /**
+   * Services
+   */
+  200: {
+    services: Array<{
+      id: string
+      label: string
+      description: string
+      category: "compute" | "integration"
+      custom: boolean
+      fields: Array<{
+        name: string
+        label: string
+        type: "password" | "text" | "textarea"
+        optional: boolean
+        placeholder?: string
+      }>
+      connected: boolean
+      set_fields: Array<string>
+      updated_at: string | null
+      source: "local" | "account" | null
+      organization_id: string | null
+    }>
+  }
+}
+
+export type SettingsCredentialsImportHostResponse =
+  SettingsCredentialsImportHostResponses[keyof SettingsCredentialsImportHostResponses]
+
 export type SettingsCredentialsRemoveData = {
   body?: never
   path: {
@@ -5315,6 +5387,7 @@ export type SettingsComputeJobsListResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -6133,6 +6206,7 @@ export type SettingsComputeJobsStartResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -7160,6 +7234,7 @@ export type SettingsComputeJobsRetryResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -7933,6 +8008,7 @@ export type SettingsComputeJobsReleaseResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -8702,6 +8778,7 @@ export type SettingsComputeJobsCancelResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -9713,6 +9790,35 @@ export type ProjectCurrentResponses = {
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
 
+export type ProjectWorkingRootsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/project/current/working-roots"
+}
+
+export type ProjectWorkingRootsResponses = {
+  /**
+   * Connected read/write folder grants
+   */
+  200: Array<{
+    id: string
+    path: string
+    access: "read" | "write"
+    scope: "once" | "session" | "project" | "installation"
+    source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
+    time: {
+      created: number
+      consumed?: number
+      revoked?: number
+    }
+  }>
+}
+
+export type ProjectWorkingRootsResponse = ProjectWorkingRootsResponses[keyof ProjectWorkingRootsResponses]
+
 export type ProjectTrustGetData = {
   body?: never
   path: {
@@ -10003,6 +10109,7 @@ export type ProjectExecutionResponses = {
     generation: string
     directory?: string
     workspace: string
+    scratch?: string
     readable: Array<string>
     writable: Array<string>
     sandbox: {
@@ -10535,6 +10642,10 @@ export type SessionCreateData = {
     title?: string
     permission?: PermissionRuleset
     workspace?: "isolated" | "project"
+    /**
+     * Pin relative tool paths to a connected read/write folder, or to scratch. Omit for automatic.
+     */
+    workingRoot?: "scratch" | string
   }
   path?: never
   query?: {
@@ -11280,6 +11391,7 @@ export type SessionFilesystemListResponses = {
         revoked?: number
       }
     }>
+    workingRoot?: "scratch" | string
     workspace: {
       schemaVersion: 1
       workspaceID: string
@@ -11295,6 +11407,7 @@ export type SessionFilesystemListResponses = {
       trashRoot?: string
       size: number
     }
+    toolDirectory: string
     enforcement: {
       broker: "enforced"
       processWrite: "grant_only"
@@ -11352,6 +11465,83 @@ export type SessionFilesystemGrantResponses = {
 }
 
 export type SessionFilesystemGrantResponse = SessionFilesystemGrantResponses[keyof SessionFilesystemGrantResponses]
+
+export type SessionFilesystemWorkingRootData = {
+  body?: {
+    workingRoot: "scratch" | string | null
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/filesystem/working-root"
+}
+
+export type SessionFilesystemWorkingRootErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionFilesystemWorkingRootError =
+  SessionFilesystemWorkingRootErrors[keyof SessionFilesystemWorkingRootErrors]
+
+export type SessionFilesystemWorkingRootResponses = {
+  /**
+   * Versioned filesystem grant state
+   */
+  200: {
+    version: 1
+    revision: number
+    sessionID: string
+    projectID: string
+    directory: string
+    grants: Array<{
+      id: string
+      path: string
+      access: "read" | "write"
+      scope: "once" | "session" | "project" | "installation"
+      source: "workspace" | "project" | "skill" | "permission" | "api" | "tool" | "handoff"
+      time: {
+        created: number
+        consumed?: number
+        revoked?: number
+      }
+    }>
+    workingRoot?: "scratch" | string
+    workspace: {
+      schemaVersion: 1
+      workspaceID: string
+      projectID: string
+      sessionID: string
+      scratchRoot: string
+      mode: "isolated" | "legacy"
+      state: "active" | "stopped" | "trash"
+      grantRevision: number
+      createdAt: number
+      lastUsedAt: number
+      trashedAt?: number
+      trashRoot?: string
+      size: number
+    }
+    toolDirectory: string
+    enforcement: {
+      broker: "enforced"
+      processWrite: "grant_only"
+      processRead: "grant_only" | "policy_only"
+    }
+  }
+}
+
+export type SessionFilesystemWorkingRootResponse =
+  SessionFilesystemWorkingRootResponses[keyof SessionFilesystemWorkingRootResponses]
 
 export type SessionFilesystemRevokeData = {
   body?: never
@@ -14890,6 +15080,7 @@ export type KernelsListResponses = {
         generation: string
         directory?: string
         workspace: string
+        scratch?: string
         readable: Array<string>
         writable: Array<string>
         sandbox: {
@@ -15022,6 +15213,7 @@ export type KernelsRestartByIdResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15153,6 +15345,7 @@ export type KernelsStopByIdResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15284,6 +15477,7 @@ export type KernelsInterruptByIdResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15459,6 +15653,7 @@ export type KernelsStatusResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15590,6 +15785,7 @@ export type KernelsRestartResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15721,6 +15917,7 @@ export type KernelsStopResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -15852,6 +16049,7 @@ export type KernelsInterruptResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16061,6 +16259,7 @@ export type NotebookKernelsResponses = {
         generation: string
         directory?: string
         workspace: string
+        scratch?: string
         readable: Array<string>
         writable: Array<string>
         sandbox: {
@@ -16193,6 +16392,7 @@ export type NotebookKernelRestartResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16324,6 +16524,7 @@ export type NotebookKernelStopResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16455,6 +16656,7 @@ export type NotebookKernelInterruptResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16631,6 +16833,7 @@ export type NotebookStatusResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16763,6 +16966,7 @@ export type NotebookRestartResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -16895,6 +17099,7 @@ export type NotebookStopResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
@@ -17027,6 +17232,7 @@ export type NotebookInterruptResponses = {
       generation: string
       directory?: string
       workspace: string
+      scratch?: string
       readable: Array<string>
       writable: Array<string>
       sandbox: {
