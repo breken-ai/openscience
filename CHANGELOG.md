@@ -10,10 +10,10 @@ tagged release also ships native binaries for Linux, macOS, and Windows.
 
 ### Changed
 
-- The first-run intro leads with the OpenScience mark, a tagline, and a
-  text-only fact strip instead of a stock icon tile; the other setup steps use a
-  small eyebrow line, the Ace benefits are text cards, and the page has a quiet
-  glow and dot grid behind the card.
+- The first-run setup is one quiet card: a small mark and step count, a title,
+  one sentence, one action. No icon tiles, benefit cards, dots, or eyebrows;
+  connection rows are plain logos with one control each. Three text styles from
+  the shared scale, so every step reads the same.
 
 ### Removed
 
