@@ -3872,7 +3872,8 @@ or internal reasoning. Call plan_exit when the plan is ready for approval.`)
       return args[argIndex]
     })
     const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-    let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
+    // A function replacement: `$$`, `$&` and friends typed by the user are text, not patterns.
+    let template = withArgs.replaceAll("$ARGUMENTS", () => input.arguments)
 
     // If command doesn't explicitly handle arguments (no $N or $ARGUMENTS placeholders)
     // but user provided arguments, append them to the template

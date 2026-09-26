@@ -309,6 +309,11 @@ public 50 the old detector named an example's `samples.csv` and the input
   read from `{file:prompt.md}` lost half of every `$$` (display math became
   inline math), and `$&`, `` $` `` or `$'` in the file were replaced with
   parts of the config value. The file's text is now inserted verbatim.
+- **Dollar signs in slash-command arguments arrive as typed.** `$ARGUMENTS`
+  was filled with a string replacement, so `$$` in the arguments became `$`,
+  `$&` became the text `$ARGUMENTS`, and `` $` `` or `$'` pasted parts of the
+  template. `/literature priors on $$\sigma^2$$` reached the model as
+  `priors on $\sigma^2$`. The arguments are now inserted verbatim.
 - **A response that dies before any output recovers on its own.** One
   Extra-high turn on the managed gateway got its first byte, then nothing,
   and read as "Thinking" for eighteen minutes; left alone it would have
