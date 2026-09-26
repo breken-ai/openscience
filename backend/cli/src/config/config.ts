@@ -1674,7 +1674,8 @@ export namespace Config {
             }
             throw new InvalidError({ path: configFilepath, message }, { cause: error })
           })
-        resolved = resolved.replace(reference, contents.trim())
+        // A function replacement: `$$`, `$&` and friends in the file are content, not patterns.
+        resolved = resolved.replace(reference, () => contents.trim())
       }
       return resolved
     }

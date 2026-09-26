@@ -233,6 +233,28 @@ test("handles file inclusion substitution", async () => {
   })
 })
 
+test("file inclusion keeps dollar signs in the included text", async () => {
+  // Display math and shell snippets are ordinary prompt content. The included
+  // text must arrive verbatim, not be read as a String.replace pattern.
+  const prompt = "Energy: $$E = mc^2$$\nShell: echo $$ and ${HOME}\nKeep $& and $' and $` as written."
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(path.join(dir, "prompt.md"), prompt)
+      await writeConfig(dir, {
+        $schema: "https://syntheticsciences.ai/config.json",
+        agent: { physicist: { prompt: "{file:prompt.md}" } },
+      })
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.agent?.["physicist"]?.prompt).toBe(prompt)
+    },
+  })
+})
+
 test("validates config schema and throws on invalid fields", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

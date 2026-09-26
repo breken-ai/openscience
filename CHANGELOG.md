@@ -300,6 +300,11 @@ public 50 the old detector named an example's `samples.csv` and the input
 
 ### Fixed
 
+- **A `{file:…}` config reference keeps the file's dollar signs.** The
+  included text was spliced in with a string replacement, so an agent prompt
+  read from `{file:prompt.md}` lost half of every `$$` (display math became
+  inline math), and `$&`, `` $` `` or `$'` in the file were replaced with
+  parts of the config value. The file's text is now inserted verbatim.
 - **A response that dies before any output recovers on its own.** One
   Extra-high turn on the managed gateway got its first byte, then nothing,
   and read as "Thinking" for eighteen minutes; left alone it would have
