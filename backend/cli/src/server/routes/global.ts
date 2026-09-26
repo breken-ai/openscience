@@ -203,7 +203,7 @@ export const GlobalRoutes = lazy(() =>
           // here would ever apply backpressure.
           const queue: GlobalEvent[] = []
           const done = Promise.withResolvers<void>()
-          const state = { closed: false, draining: false, overflowed: false }
+          const state = { closed: false, draining: false, overflowed: false, resyncQueued: false }
           const cleanup = () => {
             if (state.closed) return
             state.closed = true
@@ -219,6 +219,8 @@ export const GlobalRoutes = lazy(() =>
               for (;;) {
                 const event = state.closed ? undefined : queue.shift()
                 if (!event) break
+                // Events dropped after this marker is sent need a marker of their own.
+                if (event.payload.type === "server.connected") state.resyncQueued = false
                 await stream.writeSSE({ data: JSON.stringify(event) })
               }
             } catch (error) {
@@ -249,8 +251,12 @@ export const GlobalRoutes = lazy(() =>
               if (!state.overflowed) {
                 state.overflowed = true
                 log.warn("global event queue overflow; dropping oldest events", { limit: EVENT_QUEUE_LIMIT })
+              }
+              if (!state.resyncQueued) {
+                state.resyncQueued = true
                 // Whatever was lost, the client re-hydrates on this frame
-                // exactly as it does after a reconnect.
+                // exactly as it does after a reconnect. Every overflow after
+                // the previous marker went out needs a new one.
                 queue.unshift(connected())
               }
             }

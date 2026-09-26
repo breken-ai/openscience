@@ -176,4 +176,73 @@ describe("global.event", () => {
       },
     })
   })
+  test("a second overflow on the same connection asks the client to re-hydrate again", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const fetch = Server.internalFetch()
+        const response = await fetch("http://openscience.internal/global/event")
+        expect(response.status).toBe(200)
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        const pending = { text: "" }
+        const received: Frame[] = []
+        // Read on one reader across both floods: the connection stays open,
+        // exactly as a tab that stalls twice keeps its stream.
+        const readUntil = async (until: (frame: Frame) => boolean) => {
+          const timer = setTimeout(() => void reader.cancel().catch(() => undefined), 5_000)
+          try {
+            for (;;) {
+              const chunk = await reader.read()
+              if (chunk.done) return
+              pending.text += decoder.decode(chunk.value, { stream: true })
+              const parts = pending.text.split("\n\n")
+              pending.text = parts.pop() ?? ""
+              let hit = false
+              for (const part of parts) {
+                const data = part
+                  .split("\n")
+                  .filter((line) => line.startsWith("data: "))
+                  .map((line) => line.slice(6))
+                  .join("\n")
+                if (!data) continue
+                const frame = JSON.parse(data) as Frame
+                received.push(frame)
+                if (until(frame)) hit = true
+              }
+              if (hit) return
+            }
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+        const flood = (from: number, to: number) => {
+          for (let n = from; n < to; n++) {
+            GlobalBus.emit("event", { directory: "global", payload: { type: PING, properties: { n } } })
+          }
+        }
+
+        try {
+          flood(0, 5000)
+          await readUntil((frame) => frame.payload.properties.n === 4999)
+          const first = received.filter((frame) => frame.payload.type === CONNECTED).length
+          expect(first).toBe(2)
+
+          // The client caught up, then stalls again and a second burst
+          // overflows the queue. Events are dropped again, so the client must
+          // be told to re-hydrate again.
+          flood(5000, 10000)
+          await readUntil((frame) => frame.payload.properties.n === 9999)
+          const pings = received
+            .filter((frame) => frame.payload.type === PING)
+            .map((frame) => frame.payload.properties.n!)
+          expect(pings.length).toBeLessThan(10000)
+          const connected = received.filter((frame) => frame.payload.type === CONNECTED)
+          expect(connected).toHaveLength(3)
+        } finally {
+          await reader.cancel().catch(() => undefined)
+        }
+      },
+    })
+  })
 })

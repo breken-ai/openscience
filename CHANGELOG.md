@@ -309,6 +309,13 @@ public 50 the old detector named an example's `samples.csv` and the input
   read from `{file:prompt.md}` lost half of every `$$` (display math became
   inline math), and `$&`, `` $` `` or `$'` in the file were replaced with
   parts of the config value. The file's text is now inserted verbatim.
+- **A workspace that falls behind twice resyncs twice.** When a connection's
+  event queue overflowed, the server sent a `server.connected` frame so the
+  page re-fetched what it lost, but only the first time. A later overflow on
+  the same connection dropped events without one, so a renamed session, a
+  new session or a finished status could stay stale until reload. Both
+  `/global/event` and `/event` now send a new resync frame for every overflow
+  after the previous one went out.
 - **A response that dies before any output recovers on its own.** One
   Extra-high turn on the managed gateway got its first byte, then nothing,
   and read as "Thinking" for eighteen minutes; left alone it would have

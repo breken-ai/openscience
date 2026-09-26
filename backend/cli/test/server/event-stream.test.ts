@@ -160,4 +160,62 @@ describe("event.subscribe", () => {
       },
     })
   })
+  test("a second overflow on the same connection asks the client to resync again", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const fetch = Server.internalFetch()
+        const response = await fetch(`http://openscience.internal/event?directory=${encodeURIComponent(projectRoot)}`)
+        expect(response.status).toBe(200)
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        const pending = { text: "" }
+        const received: Frame[] = []
+        const readUntil = async (until: (frame: Frame) => boolean) => {
+          const timer = setTimeout(() => void reader.cancel().catch(() => undefined), 10_000)
+          try {
+            for (;;) {
+              const chunk = await reader.read()
+              if (chunk.done) return
+              pending.text += decoder.decode(chunk.value, { stream: true })
+              const parts = pending.text.split("\n\n")
+              pending.text = parts.pop() ?? ""
+              let hit = false
+              for (const part of parts) {
+                const data = part
+                  .split("\n")
+                  .filter((line) => line.startsWith("data: "))
+                  .map((line) => line.slice(6))
+                  .join("\n")
+                if (!data) continue
+                const frame = JSON.parse(data) as Frame
+                received.push(frame)
+                if (until(frame)) hit = true
+              }
+              if (hit) return
+            }
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+
+        try {
+          for (let n = 0; n < 2500; n++) await Bus.publish(Ping, { n })
+          await readUntil((frame) => frame.properties.n === 2499)
+          expect(received.filter((frame) => frame.type === "server.connected")).toHaveLength(2)
+
+          // The client caught up, then stalls again and a second burst
+          // overflows the queue: events are dropped again, so it must be told
+          // to resync again.
+          for (let n = 2500; n < 5000; n++) await Bus.publish(Ping, { n })
+          await readUntil((frame) => frame.properties.n === 4999)
+          const pings = received.filter((frame) => frame.type === Ping.type)
+          expect(pings.length).toBeLessThan(5000)
+          expect(received.filter((frame) => frame.type === "server.connected")).toHaveLength(3)
+        } finally {
+          await reader.cancel().catch(() => undefined)
+        }
+      },
+    })
+  })
 })
