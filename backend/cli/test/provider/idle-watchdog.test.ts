@@ -756,3 +756,20 @@ describe("provider activity watchdog", () => {
     expect(timings[0].outcome).toBe("completed")
   })
 })
+
+test("the idle deadline follows the effort the request asks for", () => {
+  const body = (effort: string) => JSON.stringify({ model: "gpt-5.6-sol", input: "x", reasoning: { effort } })
+  expect(Provider.scaleIdleTimeout(600_000, body("max"), false)).toBe(2_700_000)
+  expect(Provider.scaleIdleTimeout(600_000, body("xhigh"), false)).toBe(1_500_000)
+  expect(Provider.scaleIdleTimeout(600_000, body("high"), false)).toBe(900_000)
+  expect(Provider.scaleIdleTimeout(600_000, body("medium"), false)).toBe(600_000)
+  expect(
+    Provider.scaleIdleTimeout(600_000, JSON.stringify({ model: "m", messages: [], reasoning_effort: "max" }), false),
+  ).toBe(2_700_000)
+  // No deadline stays no deadline; a non-JSON body is left alone.
+  expect(Provider.scaleIdleTimeout(false, body("max"), false)).toBe(false)
+  expect(Provider.scaleIdleTimeout(600_000, undefined, false)).toBe(600_000)
+  // The managed gateway bounds its own silence, so its deadline never grows.
+  expect(Provider.scaleIdleTimeout(600_000, body("max"), true)).toBe(600_000)
+  expect(Provider.scaleIdleTimeout(600_000, body("xhigh"), true)).toBe(600_000)
+})

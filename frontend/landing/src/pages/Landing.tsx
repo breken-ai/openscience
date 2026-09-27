@@ -7,7 +7,8 @@ import Header from "@/components/Header"
 import { useMeta } from "@/components/Meta"
 import { ProviderRow } from "@/components/ProviderMark"
 import Workspace from "@/components/Workspace"
-import { BENCHMARKS, PRELIMINARY } from "@/data/benchmarks"
+import { BENCHMARKS } from "@/data/benchmarks"
+import { NUMBERS } from "@/data/benchmark"
 import { DOCS, GITHUB, LICENSE, SYNTHETIC_SCIENCES, docs } from "@/data/links"
 
 /* Install command per tab. `highlight` is the part set in ink. */
@@ -82,19 +83,15 @@ function InstallTabs() {
 
 const WHAT = [
   ["Model agnostic", "Free models included, or your own keys for any provider"],
-  ["Scientific databases", "UniProt, PDB, ChEMBL, PubChem, arXiv, and 37 more, as tools"],
-  ["Bundled skills", "355 skills across biology, chemistry, physics, ML, and writing, with a curated research core"],
+  ["Scientific databases", `UniProt, PDB, ChEMBL, PubChem, arXiv, and ${NUMBERS.connectors_total - 5} more, as tools`],
+  [
+    "Bundled skills",
+    `${NUMBERS.skills_total} skills across biology, chemistry, physics, ML, and writing, with a curated research core`,
+  ],
   ["ChatGPT Plus/Pro", "Sign in with OpenAI to use the subscription you already have"],
   ["Manages compute", "Builds environments and scales on demand: your laptop, cluster, or GPUs"],
   ["Multi-session", "Run several agents in parallel on the same project"],
 ] as const
-
-const RIVALS = (() => {
-  const chart = BENCHMARKS[2].chart
-  const names =
-    chart.kind === "comparison" ? chart.rows.filter((row) => row.name !== "OpenScience").map((row) => row.name) : []
-  return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}` : names.join("")
-})()
 
 function Arrow() {
   return (
@@ -214,13 +211,30 @@ export default function Landing() {
 
         <div data-component="content">
           <section data-component="hero">
-            <a data-slot="backed" href={SYNTHETIC_SCIENCES} target="_blank" rel="noreferrer">
-              <svg data-slot="yc" viewBox="0 0 24 24" aria-hidden focusable="false">
-                <rect width="24" height="24" fill="#F26625" />
-                <path d="M7 5.5h2.6l2.4 4.7 2.4-4.7H17l-3.9 7.1v5.9h-2.2v-5.9z" fill="#fff" />
-              </svg>
-              Backed by Y Combinator
-            </a>
+            <div data-slot="badges">
+              <a data-slot="backed" href={SYNTHETIC_SCIENCES} target="_blank" rel="noreferrer">
+                <svg data-slot="yc" viewBox="0 0 24 24" aria-hidden focusable="false">
+                  <rect width="24" height="24" fill="#F26625" />
+                  <path d="M7 5.5h2.6l2.4 4.7 2.4-4.7H17l-3.9 7.1v5.9h-2.2v-5.9z" fill="#fff" />
+                </svg>
+                <span>
+                  <small>Backed by</small>Y Combinator
+                </span>
+              </a>
+              <a
+                data-slot="product-hunt"
+                href="https://www.producthunt.com/products/openscience?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-openscience"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <img
+                  alt="OpenScience - The open-source AI workbench for scientific research | Product Hunt"
+                  width="250"
+                  height="54"
+                  src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1261821&theme=dark&t=1790483021568"
+                />
+              </a>
+            </div>
             <div data-slot="hero-copy">
               <h1>The open-source AI workbench for scientific research</h1>
               <p>
@@ -263,11 +277,11 @@ export default function Landing() {
               <h3>The state-of-the-art AI co-scientist</h3>
               <div>
                 <p>
-                  {PRELIMINARY ? "In preliminary runs, " : ""}OpenScience scores{" "}
-                  <strong>{BENCHMARKS[0].score.toFixed(1)}%</strong> on {BENCHMARKS[0].name}, on the cost-per-task
-                  frontier; <strong>{BENCHMARKS[1].score.toFixed(1)}%</strong> on {BENCHMARKS[1].name}, above the
-                  baseline harness on every model we tried; and <strong>{BENCHMARKS[2].score.toFixed(1)}%</strong> on{" "}
-                  {BENCHMARKS[2].name}, ahead of {RIVALS}.
+                  OpenScience scores <strong>{NUMBERS.tbs_pct}%</strong> on Terminal-Bench Science, {NUMBERS.tbs_margin}{" "}
+                  above Codex with the same model; <strong>{NUMBERS.tb4_pct}%</strong> on Terminal-Bench 4.0 (science),
+                  ahead of all {NUMBERS.lb4_n} public entries; and <strong>{NUMBERS.bio_mean}</strong> on
+                  BiomniBench-DA, ahead of {NUMBERS.bio_other_short}, OmicOS, and Claude Code. See the{" "}
+                  <a href="/benchmark">benchmark report</a>.
                 </p>
               </div>
               <div data-component="benchmarks">

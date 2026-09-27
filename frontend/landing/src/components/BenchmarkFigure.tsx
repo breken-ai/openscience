@@ -1,8 +1,9 @@
-import type { Benchmark, Chart } from "@/data/benchmarks"
+import type { Benchmark } from "@/data/benchmarks"
+import { BIO_TASKS, NUMBERS, TB4_BEST, TBS_DOMAINS } from "@/data/benchmark"
 
 /* Three figures in one chart language, after the terminal-bench-science.ai
-   Pareto view: a light grid, quiet ticks, ochre square markers for other
-   agents, and turquoise for OpenScience, the only thing labelled. */
+   view: a light grid, quiet ticks, ochre square markers for other agents,
+   and turquoise for OpenScience, the only thing labelled. */
 
 const W = 300
 const H = 240
@@ -12,7 +13,7 @@ const T = 30
 const B = H - 40
 const ink = "var(--color-text-strong)"
 const accent = "var(--color-accent)"
-const other = "var(--color-chart-other)"
+const other = "var(--color-chart-cc)"
 const soft = "var(--color-accent-soft)"
 const grid = "var(--color-border-weak)"
 const tick = { fontSize: 11, fill: "var(--color-text-weak)" } as const
@@ -65,101 +66,70 @@ function Square({ x, y, mine }: { x: number; y: number; mine?: boolean }) {
   return <rect x={x - s / 2} y={y - s / 2} width={s} height={s} fill={mine ? accent : other} opacity={mine ? 1 : 0.8} />
 }
 
-/* Resolution rate against total cost. Ochre squares are the public agents and
-   the dashed line is their Pareto front; OpenScience is the turquoise square,
-   sitting beyond it. */
-function Pareto({ points }: Extract<Chart, { kind: "pareto" }>) {
-  const maxCost = 20
-  const maxScore = 45
-  const sx = (cost: number) => L + (cost / maxCost) * (R - L)
-  const sy = (score: number) => B - (score / maxScore) * (B - T)
-  const others = points.filter((p) => p.name !== "OpenScience")
-  const front = [...others]
-    .sort((a, b) => a.cost - b.cost)
-    .filter(
-      (p) =>
-        !others.some(
-          (q) => q !== p && q.cost <= p.cost && q.score >= p.score && (q.cost < p.cost || q.score > p.score),
-        ),
-    )
-  const path = front.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.cost)} ${sy(p.score)}`).join(" ")
-  const ours = points.find((p) => p.name === "OpenScience")
+/* Terminal-Bench Science by domain: OpenScience against the strongest
+   public entry (Codex, same lead model), dashed. */
+function Domains() {
+  const [ours, best] = TBS_DOMAINS.series
+  const n = TBS_DOMAINS.domains.length
+  const sx = (i: number) => L + 18 + (i / (n - 1)) * (R - L - 36)
+  const sy = (v: number) => B - ((v - 40) / 60) * (B - T)
+  const line = (values: readonly number[]) => values.map((v, i) => `${i ? "L" : "M"}${sx(i)} ${sy(v)}`).join(" ")
+  const top = ours.values.reduce((a, v, i) => (v > ours.values[a] ? i : a), 0)
   return (
     <>
       <Frame
-        xs={[5, 10, 15].map((c) => [sx(c), `$${c}k`])}
-        ys={[10, 20, 30, 40].map((v) => [sy(v), `${v}%`])}
-        xLabel="total cost"
-        yLabel="resolution rate"
-      />
-      <path d={path} fill="none" stroke={other} strokeWidth="1" strokeDasharray="3 3" opacity="0.9" />
-      {others.map((p) => (
-        <Square key={p.name} x={sx(p.cost)} y={sy(p.score)} />
-      ))}
-      {ours ? (
-        <>
-          <circle cx={sx(ours.cost)} cy={sy(ours.score)} r="11" fill={soft} />
-          <Square x={sx(ours.cost)} y={sy(ours.score)} mine />
-          <text x={sx(ours.cost) + 12} y={sy(ours.score) + 4} fontSize="12" fill={ink}>
-            OpenScience
-          </text>
-        </>
-      ) : null}
-    </>
-  )
-}
-
-function Frontier({ series }: Extract<Chart, { kind: "frontier" }>) {
-  const sx = (i: number) => L + 22 + (i / (series.length - 1)) * (R - L - 44)
-  const sy = (v: number) => B - (v / 60) * (B - T)
-  const line = (key: "ours" | "baseline") =>
-    series.map((s, i) => `${i === 0 ? "M" : "L"}${sx(i)} ${sy(s[key])}`).join(" ")
-  const last = series[series.length - 1]
-  return (
-    <>
-      <Frame
-        xs={series.map((s, i) => [sx(i), s.model])}
-        ys={[15, 30, 45].map((v) => [sy(v), `${v}%`])}
+        xs={TBS_DOMAINS.domains.map((d, i) => [sx(i), d === "Engineering" ? "Eng." : d])}
+        ys={[50, 70, 90].map((v) => [sy(v), `${v}%`])}
         xLabel=""
-        yLabel="solved"
+        yLabel="solved, by domain"
       />
-      <path d={`${line("ours")} L${sx(series.length - 1)} ${B} L${sx(0)} ${B} Z`} fill={soft} stroke="none" />
-      <path d={line("baseline")} fill="none" stroke={other} strokeWidth="1" strokeDasharray="3 3" opacity="0.9" />
-      <path d={line("ours")} fill="none" stroke={accent} strokeWidth="1.25" />
-      {series.map((s, i) => (
-        <g key={s.model}>
-          <Square x={sx(i)} y={sy(s.baseline)} />
-          <Square x={sx(i)} y={sy(s.ours)} mine />
+      <path d={`${line(ours.values)} L${sx(n - 1)} ${B} L${sx(0)} ${B} Z`} fill={soft} stroke="none" />
+      <path d={line(best.values)} fill="none" stroke={other} strokeWidth="1" strokeDasharray="3 3" opacity="0.9" />
+      <path d={line(ours.values)} fill="none" stroke={accent} strokeWidth="1.25" />
+      {ours.values.map((v, i) => (
+        <g key={i}>
+          <Square x={sx(i)} y={sy(best.values[i])} />
+          <Square x={sx(i)} y={sy(v)} mine />
         </g>
       ))}
-      <text x={sx(series.length - 1) - 12} y={sy(last.ours) - 11} textAnchor="end" fontSize="12" fill={ink}>
+      <text x={sx(top)} y={sy(ours.values[top]) - 12} textAnchor="middle" fontSize="12" fill={ink}>
         OpenScience
       </text>
     </>
   )
 }
 
-function Comparison({ rows }: Extract<Chart, { kind: "comparison" }>) {
-  const sorted = [...rows].sort((a, b) => b.score - a.score)
-  const slot = (R - L) / sorted.length
+/* Terminal-Bench 4.0 (science): the best public entry of each harness. */
+function Comparison() {
+  const rows = TB4_BEST
+  const slot = (R - L) / rows.length
   const bar = slot * 0.46
-  const sy = (v: number) => B - (v / 70) * (B - T)
+  const sy = (v: number) => B - (v / 80) * (B - T)
   return (
     <>
-      <Frame xs={[]} ys={[20, 40, 60].map((v) => [sy(v), `${v}%`])} xLabel="" yLabel="solved" />
-      {sorted.map((row, i) => {
-        const mine = row.name === "OpenScience"
+      <Frame xs={[]} ys={[20, 40, 60].map((v) => [sy(v), `${v}%`])} xLabel="" yLabel="solved, best entry" />
+      {rows.map((row, i) => {
+        const mine = row.harness === "os"
         const x = L + slot * i + (slot - bar) / 2
         return (
           <g key={row.name}>
             <rect
               x={x}
-              y={sy(row.score)}
+              y={sy(row.value)}
               width={bar}
-              height={B - sy(row.score)}
+              height={B - sy(row.value)}
               fill={mine ? accent : other}
               opacity={mine ? 1 : 0.55}
             />
+            <text
+              x={x + bar / 2}
+              y={sy(row.value) - 6}
+              textAnchor="middle"
+              fontSize="10"
+              fill={mine ? ink : "var(--color-text-weak)"}
+            >
+              {row.value}%
+            </text>
             <text
               x={x + bar / 2}
               y={B + 17}
@@ -180,26 +150,61 @@ function Comparison({ rows }: Extract<Chart, { kind: "comparison" }>) {
   )
 }
 
+/* BiomniBench-DA: one dot per task, highest first; OpenScience's mean is
+   the solid line and AIPOCH's the dashed one. */
+function Dots() {
+  const scores = [...BIO_TASKS].sort((a, b) => b - a)
+  const n = scores.length
+  const sx = (i: number) => L + 8 + (i / (n - 1)) * (R - L - 16)
+  const sy = (v: number) => B - (v / 100) * (B - T)
+  const ours = NUMBERS.bio_mean
+  const theirs = NUMBERS.bio_other
+  return (
+    <>
+      <Frame
+        xs={[0, 24, 49].map((i) => [sx(i), `${i + 1}`])}
+        ys={[25, 50, 75, 100].map((v) => [sy(v), String(v)])}
+        xLabel="50 tasks, by score"
+        yLabel="score"
+      />
+      <line x1={L} x2={R} y1={sy(theirs)} y2={sy(theirs)} stroke={other} strokeDasharray="3 3" opacity="0.9" />
+      <line x1={L} x2={R} y1={sy(ours)} y2={sy(ours)} stroke={accent} strokeWidth="1.25" />
+      {scores.map((v, i) => (
+        <circle key={i} cx={sx(i)} cy={sy(v)} r="2.4" fill={accent} opacity={0.9} />
+      ))}
+      <text x={L + 8} y={sy(ours) - 7} fontSize="12" fill={ink}>
+        OpenScience {ours}
+      </text>
+      <text x={L + 8} y={sy(theirs) + 14} {...tick}>
+        AIPOCH {theirs}
+      </text>
+    </>
+  )
+}
+
 export function BenchmarkFigure({ benchmark, index }: { benchmark: Benchmark; index: number }) {
-  const { chart } = benchmark
   return (
     <div data-component="benchmark">
       <div data-component="stat-illustration">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${benchmark.name}: OpenScience ${benchmark.score}%`}>
-          {chart.kind === "pareto" ? <Pareto {...chart} /> : null}
-          {chart.kind === "frontier" ? <Frontier {...chart} /> : null}
-          {chart.kind === "comparison" ? <Comparison {...chart} /> : null}
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          role="img"
+          aria-label={`${benchmark.name}: OpenScience ${benchmark.score}${benchmark.unit}`}
+        >
+          {benchmark.chart === "domains" ? <Domains /> : null}
+          {benchmark.chart === "ranked" ? <Comparison /> : null}
+          {benchmark.chart === "distribution" ? <Dots /> : null}
         </svg>
       </div>
       <span>
         <span data-slot="fig">Fig {index}.</span>
-        {benchmark.href ? (
-          <a href={benchmark.href} target="_blank" rel="noreferrer">
-            {benchmark.name}
-          </a>
-        ) : (
-          benchmark.name
-        )}
+        <strong>
+          {benchmark.score}
+          {benchmark.unit}
+        </strong>
+        <a href={benchmark.href} target="_blank" rel="noreferrer">
+          {benchmark.name}
+        </a>
       </span>
     </div>
   )
