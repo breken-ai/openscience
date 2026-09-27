@@ -1234,6 +1234,27 @@ export namespace Provider {
     return isAtlasProxyBaseURL(input.baseURL) ? DEFAULT_MANAGED_CONNECT_TIMEOUT_MS : DEFAULT_CONNECT_TIMEOUT_MS
   }
 
+  /** How much longer a stream may stay silent at higher reasoning effort.
+   * Reasoning summaries stream per reasoning item, and one item at `max` can
+   * run past ten minutes before its first byte; a worker lost fourteen
+   * minutes of work to the ten-minute deadline that way. The request body
+   * names the effort it asked for, so the deadline follows it.
+   *
+   * The managed gateway is exempt: it relays every upstream line, keepalives
+   * included, and ends a stream itself with an error after five minutes
+   * without an upstream byte or ten without model output. Ten minutes of
+   * silence there is already a dead connection at any effort; scaled, one
+   * hung Extra-high turn read as thinking for eighteen minutes. */
+  export const IDLE_TIMEOUT_EFFORT_FACTOR: Record<string, number> = { high: 1.5, xhigh: 2.5, max: 4.5 }
+
+  export function scaleIdleTimeout(idleTimeout: unknown, body: unknown, managed: boolean): unknown {
+    if (managed) return idleTimeout
+    if (typeof idleTimeout !== "number" || typeof body !== "string" || !body.startsWith("{")) return idleTimeout
+    const match = body.match(/"(?:reasoning_effort|effort)"\s*:\s*"(high|xhigh|max)"/)
+    const factor = match ? IDLE_TIMEOUT_EFFORT_FACTOR[match[1]] : undefined
+    return factor ? Math.min(Math.floor(idleTimeout * factor), MAX_TIMER_MS) : idleTimeout
+  }
+
   export function defaultIdleTimeout(input: { providerID: string; baseURL?: unknown }): number | false {
     if (localEndpoint(input)) return false
     return isAtlasProxyBaseURL(input.baseURL) ? DEFAULT_MANAGED_IDLE_TIMEOUT_MS : DEFAULT_REMOTE_IDLE_TIMEOUT_MS
@@ -1423,8 +1444,10 @@ export namespace Provider {
         autoload: true,
         options: providerOptions,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          // Skip region prefixing if model already has a cross-region inference profile prefix
-          if (modelID.startsWith("global.") || modelID.startsWith("jp.")) {
+          // An id that already names an inference profile (`us.`, `eu.`,
+          // `global.`, …) is sent as is; the catalog lists both forms, and
+          // prefixing `us.anthropic.…` again produces an id Bedrock rejects.
+          if (/^(?:global|us|eu|ap|apac|au|jp|ca|sa|us-gov)\./.test(modelID)) {
             return sdk.languageModel(modelID)
           }
 
@@ -3134,7 +3157,7 @@ export namespace Provider {
           fetchWithIdleWatchdog(fetchFn, input, opts, {
             providerID: model.providerID,
             modelID: model.id,
-            idleTimeout,
+            idleTimeout: scaleIdleTimeout(idleTimeout, opts.body, managed),
             connectTimeout,
             totalTimeout: options["timeout"],
             managed,

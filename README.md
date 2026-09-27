@@ -11,6 +11,11 @@ Give it a goal. It reads the literature, writes and runs the code, runs the expe
 
 <br/>
 
+<a href="https://syntheticsciences.ai"><img alt="Backed by Y Combinator" height="40" src="https://img.shields.io/badge/Backed%20by-Y%20Combinator-F26625?style=for-the-badge&logo=ycombinator&logoColor=white"></a>
+<a href="https://www.producthunt.com/products/openscience?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-openscience"><img alt="OpenScience - The open-source AI workbench for scientific research | Product Hunt" height="40" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1261821&theme=dark&t=1790483021568"></a>
+
+<br/>
+
 [![CI](https://github.com/synthetic-sciences/OpenScience/actions/workflows/ci.yml/badge.svg)](https://github.com/synthetic-sciences/OpenScience/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40synsci%2Fopenscience?label=npm&color=1f1f1f)](https://www.npmjs.com/package/@synsci/openscience)
 [![release](https://img.shields.io/github/v/release/synthetic-sciences/OpenScience?label=release&color=1f1f1f)](https://github.com/synthetic-sciences/OpenScience/releases/latest)
@@ -125,6 +130,16 @@ your request
 - **Publishing stays with you.** `git push`, releases and uploads run from the lead session with this machine's own GitHub and Hugging Face logins; no token is ever asked for in chat.
 
 The [capability map](https://openscience.sh/docs/#/openscience/capabilities), [Explore tools](https://openscience.sh/docs/#/openscience/explore-tools) and the [skills directory](https://openscience.sh/docs/#/openscience/skill-library) list what is available and how to set it up.
+
+## Benchmarks
+
+| Benchmark                                     |   OpenScience |
+| --------------------------------------------- | ------------: |
+| Terminal-Bench Science (70 tasks)             |  53/70 (75.7) |
+| BiomniBench-DA (public 50)                    |          82.2 |
+| Terminal-Bench 4.0, science subset (14 tasks) | 0.714 (10/14) |
+
+GPT-6 Astra and GPT-6 Sol on Harbor, with each benchmark's native environments, verifiers and judge. The results, with the trace of every counted trial, are in [benchmarks-openscience](https://github.com/synthetic-sciences/benchmarks-openscience).
 
 ## Model access
 
